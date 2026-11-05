@@ -86,10 +86,11 @@ export default {
     const durationMs = Object.prototype.hasOwnProperty.call(DURATION_MS, duration) ? DURATION_MS[duration] : null;
     const releaseAt = durationMs ? Date.now() + durationMs : null;
 
-    const response = await interaction.editReply({
+    await interaction.editReply({ content: `Jail role selected: <@&${selectedRole.id}>.`, components: [] });
+    const response = await interaction.followUp({
       content: `<@!${target.id}> has been assigned <@&${selectedRole.id}>. Duration: **${duration}**.`,
-      components: [],
       fetchReply: true,
+      allowedMentions: { parse: [] },
     });
     const jumpUrl = response.url;
     const embed = new EmbedBuilder()
