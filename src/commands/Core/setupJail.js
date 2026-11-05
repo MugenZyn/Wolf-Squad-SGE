@@ -54,7 +54,7 @@ export default {
     } else if (!jailChannel) {
       category = await guild.channels.create({ name: categoryName || 'jail', type: ChannelType.GuildCategory, reason });
     }
-    if (category && jailChannel?.parentId !== category.id) {
+    if (category && jailChannel && jailChannel.parentId !== category.id) {
       await jailChannel.setParent(category.id, { lockPermissions: false, reason });
     }
     const existingRoleCount = Array.isArray(guildConfig?.jail?.roles)
