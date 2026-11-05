@@ -14,7 +14,7 @@ export const GUILD_CONFIG_DEFAULTS = {
     disabledCategories: {},
     jail: {
         defaultDuration: 'infinite',
-        evidenceMessageCount: 1,
+        evidenceMessageCount: 5,
         defaultMessage: '',
         roles: [],
         activeCases: [],
