@@ -66,6 +66,10 @@ export default {
     if (botMember.roles.highest.comparePositionTo(jailRole) <= 0) {
       return interaction.editReply('My highest role must be above the selected jail role in Server Settings → Roles.');
     }
+    const lawyerRole = guildConfig?.jail?.lawyerRoleId ? await guild.roles.fetch(guildConfig.jail.lawyerRoleId).catch(() => null) : null;
+    if (lawyerRole && botMember.roles.highest.comparePositionTo(lawyerRole) <= 0) {
+      return interaction.editReply('My highest role must also be above the configured lawyer role.');
+    }
 
     try {
       const reason = `Jail channel access updated by ${user.tag} (${user.id})`;
