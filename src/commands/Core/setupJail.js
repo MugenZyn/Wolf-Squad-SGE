@@ -103,7 +103,7 @@ export default {
         await channel.permissionOverwrites.edit(
           jailRole.id,
           { ViewChannel: false },
-          { reason },
+          reason,
         );
         updated += 1;
       } catch (error) {
