@@ -26,7 +26,7 @@ export default {
         .setMaxLength(20))
     .addStringOption((option) =>
       option.setName('previous_role_id')
-        .setDescription('Optional ID of the old jail role overwrite to remove.')
+        .setDescription('ID of the old jail role overwrite to remove from this channel.')
         .setRequired(true)
         .setMinLength(17)
         .setMaxLength(20)),
@@ -69,13 +69,14 @@ export default {
     try {
       const reason = `Jail channel access updated by ${user.tag} (${user.id})`;
       const botMemberId = botMember.id;
+      const botRoleIds = new Set(botMember.roles.cache.keys());
       const category = channel.parentId ? await guild.channels.fetch(channel.parentId).catch(() => null) : null;
 
       // Deny visibility to roles/members allowed by the parent category, except
       // the selected jail role and the bot itself. Other permission bits remain intact.
       if (category?.type === ChannelType.GuildCategory) {
         for (const overwrite of category.permissionOverwrites.cache.values()) {
-          if (overwrite.id === guild.id || overwrite.id === jailRole.id || overwrite.id === botMemberId) continue;
+          if (overwrite.id === guild.id || overwrite.id === jailRole.id || overwrite.id === botMemberId || botRoleIds.has(overwrite.id)) continue;
           await channel.permissionOverwrites.edit(overwrite.id, { ViewChannel: false }, reason);
         }
       }
