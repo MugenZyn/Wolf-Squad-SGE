@@ -258,8 +258,12 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     // Remove legacy guild-scoped slash commands as well as replacing the global list.
     // This is an explicit startup cleanup; no server channels or roles are modified.
     for (const guild of client.guilds.cache.values()) {
-        await client.rest.put(`/applications/${clientId}/guilds/${guild.id}/commands`, { body: [] });
-        logger.info(`Cleared legacy guild-specific slash commands in ${guild.id}`);
+        try {
+            await client.rest.put(`/applications/${clientId}/guilds/${guild.id}/commands`, { body: [] });
+            logger.info(`Cleared legacy guild-specific slash commands in ${guild.id}`);
+        } catch (error) {
+            logger.warn(`Could not clear guild-specific commands in ${guild.id}: ${error.message}`);
+        }
     }
 
     logger.info('Global command changes may take up to an hour to appear in all servers');
