@@ -8,20 +8,28 @@ import {
 export default {
   data: new SlashCommandBuilder()
     .setName('setup-jail')
-    .setDescription('Create a jail channel and hide the rest of the server from a role.')
+    .setDescription('Create or configure a jail category with its jail and evidence channels.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption((option) =>
       option
-        .setName('channel_name')
-        .setDescription('Name for the jail text channel.')
+        .setName('category_name')
+        .setDescription('Name for the new jail category.')
         .setRequired(true)
         .setMaxLength(100),
     )
     .addStringOption((option) =>
       option
         .setName('jail_role_id')
-        .setDescription('ID of the existing role to jail.')
+        .setDescription('ID of the existing role that can access the jail category.')
         .setRequired(true)
+        .setMinLength(17)
+        .setMaxLength(20),
+    )
+    .addStringOption((option) =>
+      option
+        .setName('category_id')
+        .setDescription('Optional: use an existing category ID instead of creating one.')
+        .setRequired(false)
         .setMinLength(17)
         .setMaxLength(20),
     ),
@@ -37,20 +45,18 @@ export default {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const { guild, user } = interaction;
-    const channelName = interaction.options.getString('channel_name', true).trim();
+    const categoryName = interaction.options.getString('category_name', true).trim();
     const jailRoleId = interaction.options.getString('jail_role_id', true).trim();
+    const existingCategoryId = interaction.options.getString('category_id')?.trim();
+    const reason = `Jail category setup requested by ${user.tag} (${user.id})`;
 
     if (!/^\d{17,20}$/.test(jailRoleId)) {
       return interaction.editReply('That does not look like a valid Discord role ID.');
     }
 
     const jailRole = await guild.roles.fetch(jailRoleId).catch(() => null);
-    if (!jailRole) {
-      return interaction.editReply('I could not find that role in this server. Make sure you supplied the role ID.');
-    }
-
-    if (jailRole.id === guild.id) {
-      return interaction.editReply('The @everyone role cannot be used as the jail role.');
+    if (!jailRole || jailRole.id === guild.id) {
+      return interaction.editReply('I could not find that jail role in this server. The @everyone role cannot be used.');
     }
 
     if (jailRole.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -67,63 +73,96 @@ export default {
       return interaction.editReply('My highest role must be above the jail role in Server Settings → Roles.');
     }
 
-    const existingChannels = await guild.channels.fetch();
-    const reason = `Jail channel setup requested by ${user.tag} (${user.id})`;
+    let category = null;
+    let createdCategory = false;
 
-    let jailChannel;
-    try {
-      jailChannel = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        reason,
-        permissionOverwrites: [
-          {
-            id: guild.id,
-            deny: [PermissionFlagsBits.ViewChannel],
-          },
-          {
-            id: jailRole.id,
-            allow: [
-              PermissionFlagsBits.ViewChannel,
-              PermissionFlagsBits.SendMessages,
-              PermissionFlagsBits.ReadMessageHistory,
-            ],
-          },
-        ],
-      });
-    } catch (error) {
-      return interaction.editReply(`I couldn't create the jail channel: ${error.message}`);
-    }
+    if (existingCategoryId) {
+      if (!/^\d{17,20}$/.test(existingCategoryId)) {
+        return interaction.editReply('That does not look like a valid category ID.');
+      }
 
-    let updated = 0;
-    const failures = [];
+      category = await guild.channels.fetch(existingCategoryId).catch(() => null);
+      if (!category || category.type !== ChannelType.GuildCategory) {
+        return interaction.editReply('I could not find a category with that ID in this server.');
+      }
 
-    for (const channel of existingChannels.values()) {
+      // Deliberately preserve every permission overwrite on a supplied category.
+      // This lets admins maintain custom access for other roles without this
+      // command silently replacing their choices.
+    } else {
       try {
-        await channel.permissionOverwrites.edit(
-          jailRole.id,
-          { ViewChannel: false },
+        category = await guild.channels.create({
+          name: categoryName,
+          type: ChannelType.GuildCategory,
           reason,
-        );
-        updated += 1;
+          permissionOverwrites: [
+            {
+              id: guild.id,
+              deny: [PermissionFlagsBits.ViewChannel],
+            },
+            {
+              id: jailRole.id,
+              allow: [
+                PermissionFlagsBits.ViewChannel,
+                PermissionFlagsBits.SendMessages,
+                PermissionFlagsBits.ReadMessageHistory,
+                PermissionFlagsBits.SendMessagesInThreads,
+                PermissionFlagsBits.CreatePublicThreads,
+              ],
+            },
+          ],
+        });
+        createdCategory = true;
       } catch (error) {
-        failures.push(`${channel.name} (${channel.id}): ${error.message}`);
+        return interaction.editReply(`I couldn't create the jail category: ${error.message}`);
       }
     }
 
-    if (failures.length > 0) {
-      return interaction.editReply(
-        [
-          `Created ${jailChannel} and updated ${updated}/${existingChannels.size} existing channels.`,
-          `I couldn't update ${failures.length} channel(s), so the jail role may still be able to see some of the server:`,
-          failures.slice(0, 8).map((failure) => `• ${failure}`).join('\n'),
-          failures.length > 8 ? `...and ${failures.length - 8} more.` : '',
-        ].filter(Boolean).join('\n'),
-      );
+    const createdChannels = [];
+    const failures = [];
+
+    try {
+      const jailChannel = await guild.channels.create({
+        name: 'jail',
+        type: ChannelType.GuildText,
+        parent: category.id,
+        reason,
+      });
+      createdChannels.push(jailChannel);
+    } catch (error) {
+      failures.push(`jail text channel: ${error.message}`);
     }
 
-    return interaction.editReply(
-      `Jail setup complete. Created ${jailChannel} and denied **View Channel** for <@&${jailRole.id}> on all ${updated} previously existing channels (including categories). The role can view and send messages in the new jail channel.`,
-    );
+    try {
+      const evidenceChannel = await guild.channels.create({
+        name: 'jail-evidence',
+        type: ChannelType.GuildForum,
+        parent: category.id,
+        reason,
+      });
+      createdChannels.push(evidenceChannel);
+    } catch (error) {
+      failures.push(`jail evidence forum: ${error.message}`);
+    }
+
+    if (failures.length) {
+      return interaction.editReply([
+        `Category: ${category}${createdCategory ? ' (created)' : ' (existing; its permissions were left untouched)'}.`,
+        createdChannels.length
+          ? `Created: ${createdChannels.map((channel) => channel.toString()).join(', ')}.`
+          : 'No channels were created successfully.',
+        `Problems: ${failures.join(' | ')}`,
+        'No existing channels were moved, edited, or force-synced.',
+      ].join('\n'));
+    }
+
+    return interaction.editReply([
+      `Jail category setup complete: ${category}.`,
+      `Created ${createdChannels[0]} and forum channel ${createdChannels[1]}.`,
+      createdCategory
+        ? `The new category denies @everyone access and grants <@&${jailRole.id}> access. Both new channels inherit the category permissions.`
+        : 'The existing category permissions were left exactly as they were. The new channels inherit its current permissions.',
+      'Existing channels in the category were not changed or force-synced. You can manually adjust category and channel permissions at any time.',
+    ].join('\n'));
   },
 };
