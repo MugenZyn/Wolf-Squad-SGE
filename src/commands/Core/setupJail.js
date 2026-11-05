@@ -128,6 +128,7 @@ export default {
         parent: category.id,
         reason,
       });
+      await jailChannel.lockPermissions();
       createdChannels.push(jailChannel);
     } catch (error) {
       failures.push(`jail text channel: ${error.message}`);
@@ -140,6 +141,7 @@ export default {
         parent: category.id,
         reason,
       });
+      await evidenceChannel.lockPermissions();
       createdChannels.push(evidenceChannel);
     } catch (error) {
       failures.push(`jail evidence forum: ${error.message}`);
