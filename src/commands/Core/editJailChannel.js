@@ -4,6 +4,7 @@ import {
   SlashCommandBuilder,
   MessageFlags,
 } from 'discord.js';
+import { updateGuildConfig } from '../../services/config/guildConfig.js';
 
 const ID_PATTERN = /^\d{17,20}$/;
 
@@ -100,7 +101,13 @@ export default {
         deny: [],
       }, reason);
 
-      const lawyerRoleId = guildConfig?.jail?.lawyerRoleId;\n      if (lawyerRoleId) {\n        const lawyerRole = await guild.roles.fetch(lawyerRoleId).catch(() => null);\n        if (lawyerRole) await channel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);\n      }\n\n      let removedOldRole = false;
+      const lawyerRoleId = guildConfig?.jail?.lawyerRoleId;
+      if (lawyerRoleId) {
+        const lawyerRole = await guild.roles.fetch(lawyerRoleId).catch(() => null);
+        if (lawyerRole) await channel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+      }
+
+      let removedOldRole = false;
       if (previousRoleId !== jailRole.id && previousRoleId !== guild.id) {
         await channel.permissionOverwrites.delete(previousRoleId, `Previous jail role removed by ${user.tag} (${user.id})`).catch((error) => {
           if (error.code !== 10013 && error.code !== 10004) throw error;
@@ -108,14 +115,20 @@ export default {
         removedOldRole = true;
       }
 
-      const jail = guildConfig?.jail ?? {};\n      const roles = (Array.isArray(jail.roles) ? jail.roles : []).filter(item => item?.roleId !== jailRole.id && item?.channelId !== channel.id);\n      roles.push({ roleId: jailRole.id, channelId: channel.id });\n      await updateGuildConfig(interaction.client, guild.id, { jail: { ...jail, channelId: channel.id, roles } });\n\n      return interaction.editReply([
+      const jail = guildConfig?.jail ?? {};
+      const roles = (Array.isArray(jail.roles) ? jail.roles : []).filter(item => item?.roleId !== jailRole.id && item?.channelId !== channel.id);
+      roles.push({ roleId: jailRole.id, channelId: channel.id });
+      await updateGuildConfig(interaction.client, guild.id, { jail: { ...jail, channelId: channel.id, roles } });
+
+      return interaction.editReply([
         `Updated ${channel} (${channel.id}).`,
         `The selected access role is now <@&${jailRole.id}> (${jailRole.id}).`,
         removedOldRole
           ? `Removed the previous role overwrite for ${previousRoleId}.`
           : 'No previous role overwrite was removed. Supply previous_role_id if you want the old jail role removed.',
         'Other category roles/members were denied channel visibility; unrelated permission bits and other channel overwrites were left intact. This channel is not force-synced to its category.',
-      ].join('\n'));
+      ].join('
+'));
     } catch (error) {
       return interaction.editReply(`I couldn't fully update the channel permissions: ${error.message}`);
     }
