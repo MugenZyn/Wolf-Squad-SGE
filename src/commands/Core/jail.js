@@ -92,7 +92,7 @@ export default {
       fetchReply: true,
       allowedMentions: { parse: [] },
     });
-    const jumpUrl = response.url;
+    const jumpUrl = evidence.length ? evidence[evidence.length - 1].url : response.url;
     const embed = new EmbedBuilder()
       .setTitle('Jail Evidence')
       .setColor(0x8B0000)
@@ -112,7 +112,7 @@ export default {
     } else {
       embed.addFields({ name: 'Recent messages', value: 'No recent messages from this member were found in the channel where /jail was run.' });
     }
-    embed.addFields({ name: 'Jump to context', value: `[Open the jail action in <#${interaction.channelId}>](${jumpUrl})` });
+    embed.addFields({ name: 'Jump to context', value: `[Open the original context in <#${interaction.channelId}>](${jumpUrl})` });
 
     let evidenceResult = 'Evidence post created.';
     try {
