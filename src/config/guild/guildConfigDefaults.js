@@ -12,4 +12,15 @@ export const GUILD_CONFIG_DEFAULTS = {
     dmOnClose: true,
     disabledCommands: {},
     disabledCategories: {},
+    jail: {
+        defaultDuration: 'infinite',
+        evidenceMessageCount: 1,
+        defaultMessage: '',
+        roles: [],
+        activeCases: [],
+        channelId: null,
+        categoryId: null,
+        evidenceForumId: null,
+        lawyerRoleId: null,
+    },
 };
