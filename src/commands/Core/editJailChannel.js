@@ -27,7 +27,7 @@ export default {
     .addStringOption((option) =>
       option.setName('previous_role_id')
         .setDescription('Optional ID of the old jail role overwrite to remove.')
-        .setRequired(false)
+        .setRequired(true)
         .setMinLength(17)
         .setMaxLength(20)),
 
@@ -41,7 +41,7 @@ export default {
     const { guild, user } = interaction;
     const channelId = interaction.options.getString('channel_id', true).trim();
     const jailRoleId = interaction.options.getString('jail_role_id', true).trim();
-    const previousRoleId = interaction.options.getString('previous_role_id')?.trim();
+    const previousRoleId = interaction.options.getString('previous_role_id', true).trim();
 
     if (!ID_PATTERN.test(channelId)) return interaction.editReply('That does not look like a valid channel ID.');
     if (!ID_PATTERN.test(jailRoleId)) return interaction.editReply('That does not look like a valid role ID.');
@@ -71,7 +71,7 @@ export default {
       // Existing overwrites for every other role/member remain untouched.
       await channel.permissionOverwrites.edit(guild.id, {
         ViewChannel: false,
-      }, { reason: `Jail channel access updated by ${user.tag} (${user.id})` });
+      }, `Jail channel access updated by ${user.tag} (${user.id})`);
 
       const allow = [
         PermissionFlagsBits.ViewChannel,
@@ -85,10 +85,10 @@ export default {
       await channel.permissionOverwrites.edit(jailRole.id, {
         allow,
         deny: [],
-      }, { reason: `Jail role changed by ${user.tag} (${user.id})` });
+      }, `Jail role changed by ${user.tag} (${user.id})`);
 
       let removedOldRole = false;
-      if (previousRoleId && previousRoleId !== jailRole.id && previousRoleId !== guild.id) {
+      if (previousRoleId !== jailRole.id && previousRoleId !== guild.id) {
         await channel.permissionOverwrites.delete(previousRoleId, `Previous jail role removed by ${user.tag} (${user.id})`).catch((error) => {
           if (error.code !== 10013 && error.code !== 10004) throw error;
         });
