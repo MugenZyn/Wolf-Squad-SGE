@@ -127,7 +127,7 @@ export default {
           ? `Removed the previous role overwrite for ${previousRoleId}.`
           : 'No previous role overwrite was removed. Supply previous_role_id if you want the old jail role removed.',
         'Other category roles/members were denied channel visibility; unrelated permission bits and other channel overwrites were left intact. This channel is not force-synced to its category.',
-      ].join('\\n'));
+      ].join('\n'));
     } catch (error) {
       return interaction.editReply(`I couldn't fully update the channel permissions: ${error.message}`);
     }
