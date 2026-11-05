@@ -4,6 +4,7 @@ import {
 } from 'discord.js';
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
+import { scheduleJailRelease } from '../../services/jailReleaseService.js';
 
 const DURATION_MS = { infinite: null, '1h': 3600000, '6h': 21600000, '12h': 43200000, '1d': 86400000, '3d': 259200000, '7d': 604800000 };
 
@@ -58,7 +59,8 @@ export default {
 
     let selectedRoleId;
     try {
-      const selection = await interaction.channel.awaitMessageComponent({
+      const promptMessage = await interaction.fetchReply();
+      const selection = await promptMessage.awaitMessageComponent({
         time: 60000,
         filter: i => i.user.id === interaction.user.id && i.customId === 'choose_jail_role',
       });
@@ -125,6 +127,7 @@ export default {
     const activeCases = Array.isArray(jail.activeCases) ? jail.activeCases.filter(c => c.userId !== target.id) : [];
     activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt });
     await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases } });
+    if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: selectedRole.id, releaseAt });
     await interaction.followUp({ content: evidenceResult, flags: MessageFlags.Ephemeral });
   },
 };
