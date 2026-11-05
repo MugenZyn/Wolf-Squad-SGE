@@ -63,12 +63,24 @@ export default {
     if (existingRoleCount >= 25) return interaction.editReply('Discord dropdowns support up to 25 registered jail roles. Remove one before adding another.');
 
     const botRoleIds = new Set(botMember.roles.cache.keys());
+    const categoryOverwrites = category
+      ? [...category.permissionOverwrites.cache.values()]
+          .filter(overwrite => ![guild.id, jailRole.id, lawyerRoleId, botMember.id].includes(overwrite.id) && !botRoleIds.has(overwrite.id))
+          .map(overwrite => ({ id: overwrite.id, deny: [PermissionFlagsBits.ViewChannel] }))
+      : [];
     if (!jailChannel) {
       jailChannel = await guild.channels.create({
         name: requestedChannelName.toLowerCase().replace(/\s+/g, '-'),
         type: ChannelType.GuildText,
         ...(category ? { parent: category.id } : {}),
         reason,
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          ...categoryOverwrites,
+          { id: jailRole.id, allow: JAIL_ALLOW },
+          ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
+          { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+        ],
       });
     }
 
