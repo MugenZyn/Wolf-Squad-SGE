@@ -3,7 +3,6 @@ import path from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { Collection } from 'discord.js';
 import { logger } from '../../utils/logger.js';
-import botConfig from '../../config/bot.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -260,7 +259,15 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     logger.info(`Registering ${commandsToRegister.length} global commands...`);
     await client.rest.put(`/applications/${clientId}/commands`, { body: commandsToRegister });
     logger.info(`Successfully registered ${commandsToRegister.length} global commands`);
-    logger.info('Global commands may take up to an hour to appear in all servers on first deploy');
+
+    // Remove legacy guild-scoped slash commands as well as replacing the global list.
+    // This is an explicit startup cleanup; no server channels or roles are modified.
+    for (const guild of client.guilds.cache.values()) {
+        await client.rest.put(`/applications/${clientId}/guilds/${guild.id}/commands`, { body: [] });
+        logger.info(`Cleared legacy guild-specific slash commands in ${guild.id}`);
+    }
+
+    logger.info('Global command changes may take up to an hour to appear in all servers');
 }
 
 export async function registerCommands(client, options = {}) {
