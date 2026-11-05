@@ -17,7 +17,7 @@ export default {
     .addStringOption(o => o.setName('evidence_forum_id').setDescription('Use an existing forum channel instead of creating one.').setMinLength(17).setMaxLength(20))
     .addStringOption(o => o.setName('evidence_forum_name').setDescription('Name for a new evidence forum.').setMaxLength(100)),
 
-  async execute(interaction) {
+  async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
@@ -80,7 +80,7 @@ export default {
       await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
     }
 
-    const current = interaction.guildConfig ?? {};
+    const current = guildConfig ?? {};
     const existingJail = current.jail ?? {};
     const roles = Array.isArray(existingJail.roles) ? existingJail.roles.filter(x => x?.roleId !== jailRole.id) : [];
     roles.push({ roleId: jailRole.id, channelId: jailChannel.id });
