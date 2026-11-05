@@ -54,9 +54,13 @@ export default {
     } else if (!jailChannel) {
       category = await guild.channels.create({ name: categoryName || 'jail', type: ChannelType.GuildCategory, reason });
     }
-    if (categoryId && jailChannel?.parentId && jailChannel.parentId !== category.id) {
-      return interaction.editReply('The existing jail channel is already in a different category. Move it manually first or omit category_id to keep its current category.');
+    if (category && jailChannel?.parentId !== category.id) {
+      await jailChannel.setParent(category.id, { lockPermissions: false, reason });
     }
+    const existingRoleCount = Array.isArray(guildConfig?.jail?.roles)
+      ? guildConfig.jail.roles.filter(x => x?.roleId !== jailRole.id).length
+      : 0;
+    if (existingRoleCount >= 25) return interaction.editReply('Discord dropdowns support up to 25 registered jail roles. Remove one before adding another.');
 
     const botRoleIds = new Set(botMember.roles.cache.keys());
     if (!jailChannel) {
@@ -103,7 +107,6 @@ export default {
 
     const existingJail = guildConfig?.jail ?? {};
     const roles = Array.isArray(existingJail.roles) ? existingJail.roles.filter(x => x?.roleId !== jailRole.id) : [];
-    if (roles.length >= 25) return interaction.editReply('Discord dropdowns support up to 25 registered jail roles. Remove one before adding another.');
     roles.push({ roleId: jailRole.id, channelId: jailChannel.id });
     await updateGuildConfig(interaction.client, guild.id, {
       jail: { ...existingJail, channelId: jailChannel.id, categoryId: category?.id ?? null, evidenceForumId: evidenceForum.id, lawyerRoleId, roles }
