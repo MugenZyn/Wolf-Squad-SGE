@@ -95,8 +95,9 @@ export default {
     }
 
     try {
+      const botRoleIds = new Set(botMember.roles.cache.keys());
       const inheritedOverwrites = [...category.permissionOverwrites.cache.values()]
-        .filter((overwrite) => overwrite.id !== guild.id && overwrite.id !== jailRole.id && overwrite.id !== botMember.id)
+        .filter((overwrite) => overwrite.id !== guild.id && overwrite.id !== jailRole.id && overwrite.id !== botMember.id && !botRoleIds.has(overwrite.id))
         .map((overwrite) => ({ id: overwrite.id, deny: [PermissionFlagsBits.ViewChannel] }));
 
       const channel = await guild.channels.create({
@@ -117,7 +118,7 @@ export default {
         createdCategory
           ? 'The new category hides its contents from @everyone; this channel grants access only through its selected role.'
           : 'The existing category permissions were not changed; this channel has its own role-specific access overwrites.',
-        'Other role and member overwrites were not changed. Use /edit-jail-channel to change this channel’s jail role later.',
+        'Other category roles/members are denied visibility in this channel; their other permission bits and the category itself are unchanged. Use /edit-jail-channel to change this channel’s jail role later.',
       ].join('\n'));
     } catch (error) {
       return interaction.editReply(`The category is ready, but I couldn't create the jail channel: ${error.message}`);
