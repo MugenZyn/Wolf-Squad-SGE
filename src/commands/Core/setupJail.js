@@ -52,8 +52,7 @@ export default {
     } else if (jailChannel?.parentId) {
       category = await guild.channels.fetch(jailChannel.parentId).catch(() => null);
     } else if (!jailChannel) {
-      if (!categoryName) return interaction.editReply('Provide category_name or category_id when creating a new jail channel.');
-      category = await guild.channels.create({ name: categoryName, type: ChannelType.GuildCategory, reason });
+      category = await guild.channels.create({ name: categoryName || 'jail', type: ChannelType.GuildCategory, reason });
     }
     if (categoryId && jailChannel?.parentId && jailChannel.parentId !== category.id) {
       return interaction.editReply('The existing jail channel is already in a different category. Move it manually first or omit category_id to keep its current category.');
