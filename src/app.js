@@ -24,9 +24,6 @@ class TitanBot extends Client {
     this.config = config;
     this.commands = new Collection();
     this.events = new Collection();
-    this.buttons = new Collection();
-    this.selectMenus = new Collection();
-    this.modals = new Collection();
     this.cooldowns = new Collection();
     this.db = null;
     this.rest = new REST({ version: '10' }).setToken(config.bot.token);
@@ -108,11 +105,9 @@ class TitanBot extends Client {
   }
 
   async loadHandlers() {
-    for (const name of ['events', 'interactions']) {
-      const module = await import(`./handlers/loaders/${name}.js`);
-      await module.default(this);
-      startupLog(`Loaded ${name}`);
-    }
+    const { default: loadEvents } = await import('./handlers/loaders/events.js');
+    await loadEvents(this);
+    startupLog('Loaded jail event handlers');
   }
 
   async registerCommands() {
