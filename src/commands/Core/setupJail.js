@@ -20,7 +20,7 @@ export default {
     .addStringOption((option) =>
       option.setName('category_name')
         .setDescription('Name for a new category (ignored when category_id is supplied).')
-        .setRequired(true)
+        .setRequired(false)
         .setMaxLength(100))
     .addStringOption((option) =>
       option.setName('channel_name')
@@ -48,7 +48,7 @@ export default {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const { guild, user } = interaction;
-    const categoryName = interaction.options.getString('category_name', true).trim();
+    const categoryName = interaction.options.getString('category_name')?.trim();
     const channelName = interaction.options.getString('channel_name', true).trim().toLowerCase().replace(/\s+/g, '-');
     const jailRoleId = interaction.options.getString('jail_role_id', true).trim();
     const categoryId = interaction.options.getString('category_id')?.trim();
@@ -80,6 +80,7 @@ export default {
         return interaction.editReply('I could not find a category with that ID in this server.');
       }
     } else {
+      if (!categoryName) return interaction.editReply('Provide category_name when you are not supplying category_id.');
       try {
         category = await guild.channels.create({
           name: categoryName,
@@ -94,6 +95,10 @@ export default {
     }
 
     try {
+      const inheritedOverwrites = [...category.permissionOverwrites.cache.values()]
+        .filter((overwrite) => overwrite.id !== guild.id && overwrite.id !== jailRole.id && overwrite.id !== botMember.id)
+        .map((overwrite) => ({ id: overwrite.id, deny: [PermissionFlagsBits.ViewChannel] }));
+
       const channel = await guild.channels.create({
         name: channelName,
         type: ChannelType.GuildText,
@@ -101,6 +106,7 @@ export default {
         reason,
         permissionOverwrites: [
           { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          ...inheritedOverwrites,
           { id: jailRole.id, allow: JAIL_CHANNEL_PERMISSIONS },
         ],
       });
