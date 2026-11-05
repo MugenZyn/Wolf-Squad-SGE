@@ -67,11 +67,23 @@ export default {
     }
 
     try {
+      const reason = `Jail channel access updated by ${user.tag} (${user.id})`;
+      const botMemberId = botMember.id;
+      const category = channel.parentId ? await guild.channels.fetch(channel.parentId).catch(() => null) : null;
+
+      // Deny visibility to roles/members allowed by the parent category, except
+      // the selected jail role and the bot itself. Other permission bits remain intact.
+      if (category?.type === ChannelType.GuildCategory) {
+        for (const overwrite of category.permissionOverwrites.cache.values()) {
+          if (overwrite.id === guild.id || overwrite.id === jailRole.id || overwrite.id === botMemberId) continue;
+          await channel.permissionOverwrites.edit(overwrite.id, { ViewChannel: false }, reason);
+        }
+      }
+
       // Keep the channel private to @everyone, then grant the selected role access.
-      // Existing overwrites for every other role/member remain untouched.
       await channel.permissionOverwrites.edit(guild.id, {
         ViewChannel: false,
-      }, `Jail channel access updated by ${user.tag} (${user.id})`);
+      }, reason);
 
       const allow = [
         PermissionFlagsBits.ViewChannel,
@@ -85,7 +97,7 @@ export default {
       await channel.permissionOverwrites.edit(jailRole.id, {
         allow,
         deny: [],
-      }, `Jail role changed by ${user.tag} (${user.id})`);
+      }, reason);
 
       let removedOldRole = false;
       if (previousRoleId !== jailRole.id && previousRoleId !== guild.id) {
@@ -101,7 +113,7 @@ export default {
         removedOldRole
           ? `Removed the previous role overwrite for ${previousRoleId}.`
           : 'No previous role overwrite was removed. Supply previous_role_id if you want the old jail role removed.',
-        'All other role/member overwrites were left unchanged. This channel uses its own access overwrite and is not force-synced to its category.',
+        'Other category roles/members were denied channel visibility; unrelated permission bits and other channel overwrites were left intact. This channel is not force-synced to its category.',
       ].join('\n'));
     } catch (error) {
       return interaction.editReply(`I couldn't fully update the channel permissions: ${error.message}`);
