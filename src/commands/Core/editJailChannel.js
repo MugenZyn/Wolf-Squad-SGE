@@ -31,7 +31,7 @@ export default {
         .setMinLength(17)
         .setMaxLength(20)),
 
-  async execute(interaction) {
+  async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) {
       return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
     }
@@ -76,7 +76,7 @@ export default {
       // the selected jail role and the bot itself. Other permission bits remain intact.
       if (category?.type === ChannelType.GuildCategory) {
         for (const overwrite of category.permissionOverwrites.cache.values()) {
-          if (overwrite.id === guild.id || overwrite.id === jailRole.id || overwrite.id === botMemberId || botRoleIds.has(overwrite.id)) continue;
+          if (overwrite.id === guild.id || overwrite.id === jailRole.id || overwrite.id === guildConfig?.jail?.lawyerRoleId || overwrite.id === botMemberId || botRoleIds.has(overwrite.id)) continue;
           await channel.permissionOverwrites.edit(overwrite.id, { ViewChannel: false }, reason);
         }
       }
@@ -100,7 +100,7 @@ export default {
         deny: [],
       }, reason);
 
-      let removedOldRole = false;
+      const lawyerRoleId = guildConfig?.jail?.lawyerRoleId;\n      if (lawyerRoleId) {\n        const lawyerRole = await guild.roles.fetch(lawyerRoleId).catch(() => null);\n        if (lawyerRole) await channel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);\n      }\n\n      let removedOldRole = false;
       if (previousRoleId !== jailRole.id && previousRoleId !== guild.id) {
         await channel.permissionOverwrites.delete(previousRoleId, `Previous jail role removed by ${user.tag} (${user.id})`).catch((error) => {
           if (error.code !== 10013 && error.code !== 10004) throw error;
@@ -108,7 +108,7 @@ export default {
         removedOldRole = true;
       }
 
-      return interaction.editReply([
+      const jail = guildConfig?.jail ?? {};\n      const roles = (Array.isArray(jail.roles) ? jail.roles : []).filter(item => item?.roleId !== jailRole.id && item?.channelId !== channel.id);\n      roles.push({ roleId: jailRole.id, channelId: channel.id });\n      await updateGuildConfig(interaction.client, guild.id, { jail: { ...jail, channelId: channel.id, roles } });\n\n      return interaction.editReply([
         `Updated ${channel} (${channel.id}).`,
         `The selected access role is now <@&${jailRole.id}> (${jailRole.id}).`,
         removedOldRole
