@@ -57,6 +57,16 @@ export default {
     if (category && jailChannel && jailChannel.parentId !== category.id) {
       await jailChannel.setParent(category.id, { lockPermissions: false, reason });
     }
+    // Hide every other category from members with this jail role.
+    // This is applied only when /setup-jail is explicitly run; later staff edits remain untouched.
+    const allGuildChannels = await guild.channels.fetch();
+    const otherCategories = allGuildChannels.filter(channel =>
+      channel.type === ChannelType.GuildCategory && channel.id !== category?.id
+    );
+    for (const otherCategory of otherCategories.values()) {
+      await otherCategory.permissionOverwrites.edit(jailRole.id, { ViewChannel: false }, reason);
+    }
+
     const existingRoleCount = Array.isArray(guildConfig?.jail?.roles)
       ? guildConfig.jail.roles.filter(x => x?.roleId !== jailRole.id).length
       : 0;
