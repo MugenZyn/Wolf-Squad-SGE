@@ -42,7 +42,7 @@ function isModerationCategory(category) {
 }
 
 /**
- * Whether a member holds the guild-configured moderator role (config wizard modRole).
+ * Whether a member holds one of the configured policeman roles.
  * @param {import('discord.js').GuildMember | null | undefined} member
  * @param {object | null | undefined} guildConfig
  * @returns {boolean}
@@ -58,7 +58,7 @@ export function memberHasConfiguredModeratorRole(member, guildConfig) {
 }
 
 /**
- * Whether a member may run a moderation command (native Discord perm or configured modRole).
+ * Whether a member may run a moderation command (native Discord perm or configured policeman role).
  * @param {import('discord.js').GuildMember | null | undefined} member
  * @param {object | null | undefined} guildConfig
  * @param {bigint | bigint[] | null} [requiredPermissions]
@@ -81,12 +81,13 @@ export function memberHasModerationCommandAccess(member, guildConfig, requiredPe
     return true;
   }
 
-  return memberHasConfiguredModeratorRole(member, guildConfig);
+  const policemanRoleIds = Array.isArray(guildConfig?.jail?.policemanRoleIds) ? guildConfig.jail.policemanRoleIds : [];
+  return policemanRoleIds.some(roleId => member.roles.cache.has(roleId));
 }
 
 /**
  * Whether a guild member satisfies a command's default_member_permissions bitfield.
- * Guild owners always pass. Moderation commands also accept the configured modRole.
+ * Guild owners always pass. Moderation commands also accept the configured policeman role.
  * @param {import('discord.js').GuildMember | null | undefined} member
  * @param {bigint | null} permissionBitfield
  * @param {{ guildConfig?: object | null, commandCategory?: string | null }} [options]
@@ -194,13 +195,8 @@ export function isAdmin(member) {
 
 export function isModerator(member, guildConfig = null) {
   if (!member) return false;
-  if (memberHasConfiguredModeratorRole(member, guildConfig)) {
-    return true;
-  }
-  return member.permissions.has([
-    PermissionFlagsBits.Administrator,
-    PermissionFlagsBits.ManageGuild
-  ]);
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  return memberHasConfiguredModeratorRole(member, guildConfig);
 }
 
 export function hasPermission(member, permissions) {
