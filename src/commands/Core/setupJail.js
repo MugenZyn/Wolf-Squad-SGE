@@ -48,10 +48,17 @@ export default {
     if (interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu()) {
       if (field === 'jailRoleIds' && interaction.isRoleSelectMenu()) {
         session.selections.jailRoleIds = interaction.values;
-      } else if (interaction.values[0]) {
-        session.selections[field] = interaction.values[0];
-      } else {
-        delete session.selections[field];
+      } else if (field === 'lawyerRoleId' && interaction.isRoleSelectMenu()) {
+        if (interaction.values[0]) session.selections.lawyerRoleId = interaction.values[0];
+        else delete session.selections.lawyerRoleId;
+      } else if (field === 'channel' && interaction.isChannelSelectMenu()) {
+        for (const key of ['categoryId', 'jailChannelId', 'evidenceForumId']) delete session.selections[key];
+        const selected = interaction.channels.first();
+        if (selected) {
+          if (selected.type === ChannelType.GuildCategory) session.selections.categoryId = selected.id;
+          else if (selected.type === ChannelType.GuildText) session.selections.jailChannelId = selected.id;
+          else if (selected.type === ChannelType.GuildForum) session.selections.evidenceForumId = selected.id;
+        }
       }
       await interaction.update({ content: setupPanelText(session), components: buildSetupPanel(token) });
       return true;
@@ -249,13 +256,10 @@ function buildSetupPanel(token) {
   return [
     new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleIds`).setPlaceholder('Select jail roles').setMinValues(0).setMaxValues(25)),
     new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('Select lawyer role').setMinValues(0).setMaxValues(1)),
-    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:categoryId`).setPlaceholder('Select category (leave empty to create)').setChannelTypes(ChannelType.GuildCategory).setMinValues(0).setMaxValues(1)),
-    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('Select jail channel (leave empty to create)').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
-    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('Select evidence forum (leave empty to create)').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:channel`).setPlaceholder('Select category, jail channel, or evidence forum').setChannelTypes(ChannelType.GuildCategory, ChannelType.GuildText, ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success)),
   ];
 }
-
 
 function hasExistingJailSetup(jail = {}) {
   return Boolean(
