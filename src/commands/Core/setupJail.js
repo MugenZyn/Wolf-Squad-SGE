@@ -57,8 +57,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
     const existingJail = guildConfig?.jail ?? {};
-    const oldJailRoleIds = Array.isArray(existingJail.roles) ? existingJail.roles.map(item => item?.roleId).filter(Boolean) : [];
-    const oldJailRoleId = oldJailRoleIds[0] || null;
+    const oldJailRoleId = existingJail.roles?.[0]?.roleId || null;
     let jailRoleId = selections.jailRoleId || oldJailRoleId || null;
     let jailRole = jailRoleId ? await guild.roles.fetch(jailRoleId).catch(() => null) : null;
     let lawyerRoleId = selections.lawyerRoleId || existingJail.lawyerRoleId || null;
@@ -103,17 +102,9 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (category && jailChannel && jailChannel.parentId !== category.id) {
       await jailChannel.setParent(category.id, { lockPermissions: false, reason });
     }
-    // When the jail role is replaced, remove only the old jail-role overwrites.
-    // Do not reset unrelated role/member permissions or recreate channels.
+    // Apply permissions only to the jail role selected for this setup.
+    // Other configured jail roles and their permissions remain untouched.
     const allGuildChannels = await guild.channels.fetch();
-    for (const oldRoleId of oldJailRoleIds) {
-      if (oldRoleId === jailRole.id) continue;
-      for (const channel of allGuildChannels.values()) {
-        if (channel.type === ChannelType.GuildCategory || channel.id === existingJail.channelId || channel.id === existingJail.evidenceForumId) {
-          await channel.permissionOverwrites.delete(oldRoleId, reason).catch(() => null);
-        }
-      }
-    }
     // Hide every other category from members with the current jail role.
     // This is applied only when /setup-jail is explicitly run; later staff edits remain untouched.
     const otherCategories = allGuildChannels.filter(channel =>
