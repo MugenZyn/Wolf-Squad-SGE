@@ -77,10 +77,6 @@ export function memberHasModerationCommandAccess(member, guildConfig, requiredPe
     return true;
   }
 
-  if (requiredPermissions != null && member.permissions.has(requiredPermissions)) {
-    return true;
-  }
-
   const policemanRoleIds = Array.isArray(guildConfig?.jail?.policemanRoleIds) ? guildConfig.jail.policemanRoleIds : [];
   return policemanRoleIds.some(roleId => member.roles.cache.has(roleId));
 }
