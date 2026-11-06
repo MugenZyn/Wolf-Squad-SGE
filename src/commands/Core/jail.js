@@ -35,6 +35,36 @@ function clip(value, max = 1000) {
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
+async function findExistingEvidenceThread(forum, userId, jail) {
+  const knownIds = [
+    ...(jail.activeCases ?? []).filter(item => item.userId === userId).map(item => item.evidenceThreadId),
+    ...(jail.history ?? []).filter(item => item.userId === userId).map(item => item.evidenceThreadId),
+  ].filter(Boolean);
+
+  for (const id of [...new Set(knownIds)].reverse()) {
+    const thread = await forum.guild.channels.fetch(id).catch(() => null);
+    if (thread?.parentId === forum.id && thread.isThread?.()) return thread;
+  }
+
+  const collections = [];
+  const active = await forum.threads.fetchActive().catch(() => null);
+  if (active?.threads) collections.push(active.threads);
+  const archived = await forum.threads.fetchArchived({ type: 'public', limit: 100 }).catch(() => null);
+  if (archived?.threads) collections.push(archived.threads);
+
+  const checked = new Set();
+  for (const threads of collections) {
+    for (const thread of threads.values()) {
+      if (checked.has(thread.id)) continue;
+      checked.add(thread.id);
+      const starter = await thread.fetchStarterMessage().catch(() => null);
+      const memberField = starter?.embeds?.[0]?.fields?.find(field => /jailed member/i.test(field.name));
+      if (memberField?.value?.includes(userId)) return thread;
+    }
+  }
+  return null;
+}
+
 export default {
   data: new SlashCommandBuilder()
     .setName('jail')
@@ -176,11 +206,18 @@ export default {
     let evidenceResult = 'Evidence post created.';
     let evidenceThreadId = null;
     try {
-      const evidenceThread = await forum.threads.create({
-        name: `Jail — ${target.user.username}`.slice(0, 100),
-        message: { embeds: [embed], components: [jumpButton], allowedMentions: { parse: [] } },
-        reason: `Jail evidence for ${target.id}`,
-      });
+      let evidenceThread = await findExistingEvidenceThread(forum, target.id, jail);
+      if (evidenceThread) {
+        if (evidenceThread.archived) await evidenceThread.setArchived(false, 'Reuse existing member jail evidence thread');
+        await evidenceThread.send({ embeds: [embed], components: [jumpButton], allowedMentions: { parse: [] } });
+        evidenceResult = 'Added evidence to the existing member evidence channel.';
+      } else {
+        evidenceThread = await forum.threads.create({
+          name: `Jail — ${target.user.username}`.slice(0, 100),
+          message: { embeds: [embed], components: [jumpButton], allowedMentions: { parse: [] } },
+          reason: `Jail evidence for ${target.id}`,
+        });
+      }
       evidenceThreadId = evidenceThread.id;
 
       let forwardedCount = 0;
