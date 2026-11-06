@@ -556,11 +556,11 @@ function buildSetupPanel(token, page = 'roles') {
     ),
     new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, field, label, field !== 'lawyerRoleId')),
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`jsetup:${token}:role_prev:${field}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_prev:${field}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(rolePageIndex === 0),
       new ButtonBuilder().setCustomId(`jsetup:${token}:role_search:${field}`).setLabel('Search roles').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`jsetup:${token}:role_clear_search:${field}`).setLabel('Clear search').setStyle(ButtonStyle.Secondary).setDisabled(!query),
       new ButtonBuilder().setCustomId(`jsetup:${token}:role_clear:${field}`).setLabel('Clear selection').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`jsetup:${token}:role_next:${field}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page >= pageCount - 1),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_next:${field}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(rolePageIndex >= pageCount - 1),
     ),
     new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:next`).setLabel('Next: Channels').setStyle(ButtonStyle.Success)),
   ];
