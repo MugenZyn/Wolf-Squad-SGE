@@ -148,7 +148,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
         permissionOverwrites: [
           { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
           ...categoryOverwrites,
-          ...uniqueJailRoles.map(role => ({ id: role.id, allow: JAIL_ALLOW })),
+          ...uniqueJailRoles.map(role => ({ id: role.id, allow: JAIL_ALLOW, deny: [PermissionFlagsBits.EmbedLinks] })),
           ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
           { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
         ],
@@ -156,7 +156,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     }
 
     await jailChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, reason);
-    for (const role of uniqueJailRoles) await jailChannel.permissionOverwrites.edit(role.id, { allow: JAIL_ALLOW, deny: [] }, reason);
+    for (const role of uniqueJailRoles) await jailChannel.permissionOverwrites.edit(role.id, { allow: JAIL_ALLOW, deny: [PermissionFlagsBits.EmbedLinks] }, reason);
     if (lawyerRole) await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
 
     let evidenceForum = forumId ? await guild.channels.fetch(forumId).catch(() => null) : null;
