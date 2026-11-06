@@ -282,7 +282,9 @@ function setupPanelEmbed(session) {
     .setColor(0x5865F2)
     .setTitle('Jail setup')
     .setDescription(session.page === 'channels'
-      ? 'Choose the channels used by the jail system. Leave a selection empty to create it automatically.'
+      ? (session.selections.managePermissions === false
+        ? 'Choose your existing jail channels. Permission edits are disabled: existing channel permissions and channel placement will be left unchanged. Make sure the bot already has access.'
+        : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. Use the permission button to preserve your existing channel permissions.')
       : 'Choose the roles used by the jail system. Jail and lawyer roles are created automatically if left empty.')
     .addFields(
       { name: 'Jail roles', value: jailRoleIds.length ? jailRoleIds.map(id => `<@&${id}>`).join(', ') : 'Automatic (SGE - JAIL)', inline: false },
@@ -307,7 +309,7 @@ function buildSetupPanel(token, page = 'roles') {
         new ButtonBuilder().setCustomId(`jsetup:${token}:back`).setLabel('Back').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
           .setCustomId(`jsetup:${token}:permissions`)
-          .setLabel(session?.selections?.managePermissions === false ? 'Permissions: Unchanged' : 'Permissions: Bot manages')
+          .setLabel(session?.selections?.managePermissions === false ? 'Enable permission edits' : 'Skip permission edits')
           .setStyle(session?.selections?.managePermissions === false ? ButtonStyle.Secondary : ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success),
       ),
