@@ -63,9 +63,9 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
   const roles = Array.isArray(jail.roles) ? [...jail.roles] : [];
   const index = roles.findIndex(item => item?.roleId === roleId);
   if (index < 0) return interaction.update({ content: 'That role is no longer registered as a jail role. Nothing was changed.', embeds: [], components: [] });
-  let selectedChannel = null;
+  const previousChannelId = roles[index]?.channelId ?? null;
   if (channelId) {
-    selectedChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+    const selectedChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
     if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText) return interaction.update({ content: 'Choose a valid text channel.', embeds: [], components: [] });
     roles[index] = { ...roles[index], roleId, channelId };
   } else {
@@ -73,7 +73,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
   }
   jail.roles = roles;
   const defaultChannelId = jail.channelId ?? null;
-  const channelIds = [...new Set([defaultChannelId, ...roles.map(item => item?.channelId).filter(Boolean)].filter(Boolean))];
+  const channelIds = [...new Set([defaultChannelId, previousChannelId, ...roles.map(item => item?.channelId).filter(Boolean)].filter(Boolean))];
   const roleIds = roles.map(item => item?.roleId).filter(Boolean);
   for (const id of channelIds) {
     const channel = await interaction.guild.channels.fetch(id).catch(() => null);
