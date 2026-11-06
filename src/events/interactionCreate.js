@@ -78,11 +78,14 @@ export default {
         const logChannel = await interaction.guild.channels.fetch(guildConfig.jail.logsChannelId).catch(() => null);
         if (logChannel?.isTextBased() && logChannel.guildId === interaction.guild.id) {
           const options = interaction.options?.data?.map(option => formatCommandOption(option, interaction)).filter(Boolean).join(' | ') || 'No options';
+          const detailLine = interaction.commandName === 'jail'
+            ? `User: <@${interaction.options.getUser('user')?.id ?? interaction.options.get('user')?.value}>`
+            : `**Details:** ${options.slice(0, 2500)}`;
           await logChannel.send({
             embeds: [{
               color: 0x2B8A3E,
               title: `Command executed: /${interaction.commandName}`,
-              description: `**Staff:** <@${interaction.user.id}> (${interaction.user.id})\n**Channel:** <#${interaction.channelId}>\n**Details:** ${options.slice(0, 2500)}`,
+              description: `**Staff:** <@${interaction.user.id}> (${interaction.user.id})\n**Channel:** <#${interaction.channelId}>\n${detailLine}`,
               timestamp: new Date().toISOString(),
             }],
             allowedMentions: { parse: [] },
