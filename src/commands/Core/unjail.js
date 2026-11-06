@@ -89,9 +89,9 @@ export default {
     for (const threadId of evidenceThreadIds) {
       const thread = await interaction.guild.channels.fetch(threadId).catch(() => null);
       if (!thread?.isTextBased() || typeof thread.send !== 'function') continue;
-      const rolesForThread = (currentJail.history ?? [])
+      const rolesForThread = [...new Set((currentJail.history ?? [])
         .filter(entry => entry.userId === target.id && removed.includes(entry.roleId) && entry.evidenceThreadId === threadId)
-        .map(entry => entry.roleId);
+        .map(entry => entry.roleId))];
       const namesForThread = [];
       for (const roleId of rolesForThread) {
         const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
