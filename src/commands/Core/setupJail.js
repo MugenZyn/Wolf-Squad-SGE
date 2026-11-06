@@ -9,8 +9,17 @@ export default {
 
   async execute(interaction) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
+    const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+    const current = await getGuildConfig(interaction.client, interaction.guild.id);
+    const existingJail = current?.jail ?? {};
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
-    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, selections: {} });
+    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, selections: {}, existing: {
+      jailRoleId: existingJail.roles?.[0]?.roleId ?? null,
+      lawyerRoleId: existingJail.lawyerRoleId ?? null,
+      categoryId: existingJail.categoryId ?? null,
+      jailChannelId: existingJail.channelId ?? null,
+      evidenceForumId: existingJail.evidenceForumId ?? null,
+    } });
     const timer = setTimeout(() => setupSessions.delete(token), 15 * 60 * 1000);
     timer.unref?.();
     return interaction.reply({ content: setupPanelText(setupSessions.get(token)), components: buildSetupPanel(token), flags: MessageFlags.Ephemeral });
@@ -24,18 +33,18 @@ export default {
       return true;
     }
     if (interaction.isButton() && field === 'save') {
-      if (!session.selections.jailRoleId) {
+      if (!(session.selections.jailRoleId || session.existing.jailRoleId)) {
         await interaction.reply({ content: 'Select a jail role before saving.', flags: MessageFlags.Ephemeral });
         return true;
       }
       setupSessions.delete(token);
       await interaction.deferUpdate();
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
-      await configureJail(interaction, await getGuildConfig(client, interaction.guildId), session.selections);
+      await configureJail(interaction, await getGuildConfig(client, interaction.guildId), { ...session.existing, ...session.selections });
       return true;
     }
     if (interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu()) {
-      session.selections[field] = interaction.values[0] || null;
+      if (interaction.values[0]) session.selections[field] = interaction.values[0];
       await interaction.update({ content: setupPanelText(session), components: buildSetupPanel(token) });
       return true;
     }
@@ -47,13 +56,15 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
-    const jailRole = await guild.roles.fetch(selections.jailRoleId).catch(() => null);
-    const lawyerRoleId = selections.lawyerRoleId || null;
-    const categoryId = selections.categoryId || null;
-    const existingChannelId = selections.jailChannelId || null;
+    const existingJail = guildConfig?.jail ?? {};
+    const jailRoleId = selections.jailRoleId || existingJail.roles?.[0]?.roleId || null;
+    const jailRole = jailRoleId ? await guild.roles.fetch(jailRoleId).catch(() => null) : null;
+    const lawyerRoleId = selections.lawyerRoleId || existingJail.lawyerRoleId || null;
+    const categoryId = selections.categoryId || existingJail.categoryId || null;
+    const existingChannelId = selections.jailChannelId || existingJail.channelId || null;
     const requestedChannelName = null;
     const categoryName = null;
-    const forumId = selections.evidenceForumId || null;
+    const forumId = selections.evidenceForumId || existingJail.evidenceForumId || null;
     const forumName = 'jail-evidence';
     const reason = `Jail setup requested by ${user.tag} (${user.id})`;
 
@@ -172,7 +183,6 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
     ], 'Restrict jail logs to administrators and the bot');
 
-    const existingJail = guildConfig?.jail ?? {};
     const roles = Array.isArray(existingJail.roles) ? existingJail.roles.filter(x => x?.roleId !== jailRole.id) : [];
     roles.push({ roleId: jailRole.id, channelId: jailChannel.id });
     await updateGuildConfig(interaction.client, guild.id, {
