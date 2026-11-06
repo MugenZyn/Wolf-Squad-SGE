@@ -364,19 +364,20 @@ export default {
     }
     if (interaction.customId === 'jconfig:add_jail_roles' && interaction.isRoleSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      await interaction.deferUpdate();
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = { ...(current?.jail ?? {}) };
       const existing = Array.isArray(jail.roles) ? [...jail.roles] : [];
       const selectedIds = [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
-      if (!selectedIds.length) return interaction.update({ content: 'No jail roles selected. Nothing was changed.', embeds: [], components: [] });
+      if (!selectedIds.length) return interaction.editReply({ content: 'No jail roles selected. Nothing was changed.', embeds: [], components: [] });
       const combined = new Set([...existing.map(item => item?.roleId).filter(Boolean), ...selectedIds]);
-      if (combined.size > 25) return interaction.update({ content: 'You can configure up to 25 jail roles. Remove some before adding more.', embeds: [], components: [] });
+      if (combined.size > 25) return interaction.editReply({ content: 'You can configure up to 25 jail roles. Remove some before adding more.', embeds: [], components: [] });
       const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
-      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.update({ content: 'I need Manage Roles permission to configure jail roles.', embeds: [], components: [] });
+      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply({ content: 'I need Manage Roles permission to configure jail roles.', embeds: [], components: [] });
       const roles = (await Promise.all(selectedIds.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
       if (roles.length !== selectedIds.length || roles.some(role => role.managed || role.permissions.has(PermissionFlagsBits.Administrator) || botMember.roles.highest.comparePositionTo(role) <= 0)) {
-        return interaction.update({ content: 'One or more selected roles are missing, managed, have Administrator permission, or are above my highest role.', embeds: [], components: [] });
+        return interaction.editReply({ content: 'One or more selected roles are missing, managed, have Administrator permission, or are above my highest role.', embeds: [], components: [] });
       }
       const channelId = jail.channelId ?? null;
       for (const role of roles) {
@@ -399,7 +400,7 @@ export default {
       }
       await updateGuildConfig(client, interaction.guildId, { jail });
       await logConfigSave(interaction, jail, 'Jail roles added', `**Roles:** ${roles.map(role => `<@&${role.id}>`).join(', ')}`);
-      return interaction.update({ content: `Registered ${roles.length} jail role(s): ${roles.map(role => `<@&${role.id}>`).join(', ')}. They use the default jail channel ${channelId ? `<#${channelId}>` : '(not configured)'} unless assigned a role-specific channel.`, embeds: [], components: [] });
+      return interaction.editReply({ content: `Registered ${roles.length} jail role(s): ${roles.map(role => `<@&${role.id}>`).join(', ')}. They use the default jail channel ${channelId ? `<#${channelId}>` : '(not configured)'} unless assigned a role-specific channel.`, embeds: [], components: [] });
     }
     if (interaction.customId === 'jconfig:lawyer_role' && interaction.isRoleSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
