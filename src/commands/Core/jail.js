@@ -309,7 +309,9 @@ export default {
       evidenceResult = `WARNING: member was jailed, but evidence forum post failed: ${clip(error.message, 300)}`;
     }
 
-    const activeCases = Array.isArray(jail.activeCases) ? jail.activeCases.filter(c => c.userId !== target.id) : [];
+    const activeCases = Array.isArray(jail.activeCases)
+      ? jail.activeCases.filter(c => c.userId !== target.id || c.roleId !== selectedRole.id)
+      : [];
     activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt, sentenceSeconds, evidenceThreadId });
     const history = Array.isArray(jail.history) ? jail.history : [];
     history.push({
