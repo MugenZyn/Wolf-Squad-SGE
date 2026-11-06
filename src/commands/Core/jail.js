@@ -382,12 +382,9 @@ export default {
       content: `Assigned ${assignedRoles.length} jail role(s) to **${clip(target.user.tag, 80)}**. Sentence: **${durationLabel}**.`,
       components: [],
     });
-    const response = await interaction.followUp({
-      content: `<@!${target.id}> has been assigned ${assignedRoles.length} jail role(s). Sentence: **${durationLabel}**.`,
-      fetchReply: true,
-      allowedMentions: { parse: [] },
-    });
-    const jumpUrl = evidence.length ? evidence[evidence.length - 1].url : response.url;
+    const jumpUrl = evidence.length
+      ? evidence[evidence.length - 1].url
+      : `https://discord.com/channels/${interaction.guildId}/${interaction.channelId}`;
     const embed = new EmbedBuilder()
       .setTitle('Jail Evidence')
       .setColor(0x8B0000)
