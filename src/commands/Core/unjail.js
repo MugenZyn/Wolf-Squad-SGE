@@ -2,6 +2,7 @@ import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
 import { getGuildConfig, updateGuildConfig } from '../../services/config/guildConfig.js';
 import { cancelJailRelease } from '../../services/jailReleaseService.js';
+import { markExpectedJailRoleRemoval, clearExpectedJailRoleRemoval } from '../../services/jailRoleUpdateGuard.js';
 
 function renderAnnouncement(template, values) {
   return String(template ?? '').replace(/\{\{(user|server|moderator|roles)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
@@ -54,10 +55,12 @@ export default {
         failed.push(role?.name ?? roleId);
         continue;
       }
+      markExpectedJailRoleRemoval(interaction.guild.id, target.id, roleId);
       try {
         await target.roles.remove(role, `Unjailed by ${interaction.user.tag} (${interaction.user.id})`);
         removed.push(roleId);
       } catch {
+        clearExpectedJailRoleRemoval(interaction.guild.id, target.id, roleId);
         failed.push(role.name);
       }
     }
