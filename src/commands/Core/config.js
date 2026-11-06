@@ -153,7 +153,8 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
   const previousChannelId = roles[index]?.channelId ?? null;
   if (channelId) {
     const selectedChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
-    if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText || (jail.categoryId && selectedChannel.parentId !== jail.categoryId)) return interaction.update({ content: 'Choose a text channel inside the configured jail category.', embeds: [], components: [] });
+    const allowedJailChannels = await getJailChannelOptions(interaction.guild, jail);
+    if (!selectedChannel || !allowedJailChannels.some(channel => channel.id === channelId)) return interaction.update({ content: 'Choose one of the available jail channels from the configured jail category.', embeds: [], components: [] });
     roles[index] = { ...roles[index], roleId, channelId };
   } else {
     roles[index] = { ...roles[index], roleId, channelId: null };
