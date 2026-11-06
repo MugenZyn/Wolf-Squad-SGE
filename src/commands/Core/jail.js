@@ -1,6 +1,6 @@
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, PermissionFlagsBits,
-  SlashCommandBuilder, StringSelectMenuBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
+  SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
@@ -34,26 +34,35 @@ function renderAnnouncement(template, values) {
   return String(template ?? '').replace(/\{\{(user|server|moderator|role|reason|duration)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
 }
 
-const JAIL_ROLE_PAGE_SIZE = 23;
+const JAIL_ROLE_PAGE_SIZE = 25;
 
-function buildJailRoleMenu(token, roles, page) {
-  const pageCount = Math.max(1, Math.ceil(roles.length / JAIL_ROLE_PAGE_SIZE));
+function getFilteredJailRoles(roles, searchQuery = '') {
+  const query = String(searchQuery ?? '').trim().toLowerCase();
+  return roles.filter(role => !query || role.name.toLowerCase().includes(query));
+}
+
+function buildJailRoleMenu(token, roles, page, searchQuery = '') {
+  const filtered = getFilteredJailRoles(roles, searchQuery);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / JAIL_ROLE_PAGE_SIZE));
   const safePage = Math.min(Math.max(0, Number(page) || 0), pageCount - 1);
-  const options = roles
-    .slice(safePage * JAIL_ROLE_PAGE_SIZE, (safePage + 1) * JAIL_ROLE_PAGE_SIZE)
+  const options = filtered.slice(safePage * JAIL_ROLE_PAGE_SIZE, (safePage + 1) * JAIL_ROLE_PAGE_SIZE)
     .map(role => ({ label: clip(role.name, 100), value: role.id, description: `Jail role: ${clip(role.name, 80)}` }));
-  options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous jail roles', disabled: safePage === 0 });
-  options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more jail roles', disabled: safePage >= pageCount - 1 });
+  if (!options.length) options.push({ label: 'No matching jail roles found', value: '__no_roles__', description: 'Change or clear the search', disabled: true });
   return {
-    menu: new StringSelectMenuBuilder()
-      .setCustomId(`choose_jail_role:${token}:${safePage}`)
-      .setPlaceholder(`Choose a registered jail role (page ${safePage + 1}/${pageCount})`)
-      .setMinValues(1)
-      .setMaxValues(1)
-      .addOptions(options),
-    page: safePage,
-    pageCount,
+    menu: new StringSelectMenuBuilder().setCustomId(`choose_jail_role:${token}:${safePage}`)
+      .setPlaceholder(`Choose a jail role (page ${safePage + 1}/${pageCount})`)
+      .setMinValues(1).setMaxValues(1).addOptions(options),
+    page: safePage, pageCount, filtered,
   };
+}
+
+function buildJailRolePager(token, page, pageCount, searchQuery = '') {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:search`).setLabel('Search roles').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:clear_search`).setLabel('Clear search').setStyle(ButtonStyle.Secondary).setDisabled(!searchQuery),
+    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page >= pageCount - 1),
+  );
 }
 
 function clip(value, max = 1000) {
@@ -152,32 +161,48 @@ export default {
     const pickerToken = interaction.id;
     let selectedRoleId;
     let currentRolePage = 0;
-    const firstPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage);
-    await interaction.reply({
-      content: `Choose the jail role for **${clip(target.user.tag, 80)}**. Page 1 of ${firstPicker.pageCount}.`,
-      components: [new ActionRowBuilder().addComponents(firstPicker.menu)],
-      flags: MessageFlags.Ephemeral,
+    let roleSearchQuery = '';
+    const firstPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery);
+    const jailRolePickerPayload = picker => ({
+      content: `Choose the jail role for **${clip(target.user.tag, 80)}**. ${roleSearchQuery ? `Search: ${roleSearchQuery}. ` : ''}Page ${picker.page + 1} of ${picker.pageCount}.`,
+      components: [new ActionRowBuilder().addComponents(picker.menu), buildJailRolePager(pickerToken, picker.page, picker.pageCount, roleSearchQuery)],
     });
+    await interaction.reply({ ...jailRolePickerPayload(firstPicker), flags: MessageFlags.Ephemeral });
 
     try {
       const promptMessage = await interaction.fetchReply();
       while (!selectedRoleId) {
         const selection = await promptMessage.awaitMessageComponent({
           time: 60000,
-          filter: i => i.user.id === interaction.user.id && i.customId.startsWith(`choose_jail_role:${pickerToken}:`),
+          filter: i => i.user.id === interaction.user.id && (
+            i.customId.startsWith(`choose_jail_role:${pickerToken}:`) || i.customId.startsWith(`jail_role_nav:${pickerToken}:`)
+          ),
         });
-        const selected = selection.values[0];
-        const pageValue = Number.parseInt(selection.customId.split(':').at(-1), 10) || 0;
-        if (selected === '__previous_page__' || selected === '__next_page__') {
-          currentRolePage = selected === '__previous_page__' ? pageValue - 1 : pageValue + 1;
-          const nextPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage);
-          await selection.update({
-            content: `Choose the jail role for **${clip(target.user.tag, 80)}**. Page ${nextPicker.page + 1} of ${nextPicker.pageCount}.`,
-            components: [new ActionRowBuilder().addComponents(nextPicker.menu)],
-          });
+        if (selection.isButton()) {
+          const control = selection.customId.split(':').at(-1);
+          if (control === 'search') {
+            const modal = new ModalBuilder().setCustomId(`jailrolemodal:${pickerToken}`).setTitle('Search jail roles');
+            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_query').setLabel('Role name contains').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Leave empty to show all roles')));
+            await selection.showModal(modal);
+            const modalSubmit = await interaction.awaitModalSubmit({
+              time: 60000,
+              filter: submit => submit.user.id === interaction.user.id && submit.customId === `jailrolemodal:${pickerToken}`,
+            });
+            roleSearchQuery = modalSubmit.fields.getTextInputValue('role_query').trim();
+            currentRolePage = 0;
+            const searchedPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery);
+            await modalSubmit.update(jailRolePickerPayload(searchedPicker));
+            continue;
+          }
+          if (control === 'clear_search') roleSearchQuery = '';
+          else if (control === 'prev') currentRolePage = Math.max(0, currentRolePage - 1);
+          else if (control === 'next') currentRolePage++;
+          const nextPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery);
+          currentRolePage = nextPicker.page;
+          await selection.update(jailRolePickerPayload(nextPicker));
           continue;
         }
-        selectedRoleId = selected;
+        selectedRoleId = selection.values[0];
         await selection.deferUpdate();
       }
     } catch {
