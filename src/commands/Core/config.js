@@ -237,7 +237,7 @@ export default {
       for (const category of channels.filter(channel => channel.type === ChannelType.GuildCategory && channel.id !== jail.categoryId).values()) {
         for (const role of roles) await category.permissionOverwrites.edit(role.id, { ViewChannel: false }, 'Register jail role from /config');
       }
-      for (const resourceId of [jail.categoryId, channelId, jail.evidenceForumId].filter(Boolean)) {
+      for (const resourceId of [jail.categoryId, channelId].filter(Boolean)) {
         const resource = await interaction.guild.channels.fetch(resourceId).catch(() => null);
         if (!resource?.permissionOverwrites) continue;
         for (const role of roles) {
