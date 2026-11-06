@@ -19,6 +19,7 @@ export const GUILD_CONFIG_DEFAULTS = {
         defaultMessage: '',
         roles: [],
         activeCases: [],
+        history: [],
         channelId: null,
         categoryId: null,
         evidenceForumId: null,
