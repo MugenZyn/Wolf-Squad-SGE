@@ -1,10 +1,13 @@
 import { Events, MessageFlags } from 'discord.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { logger } from '../utils/logger.js';
+import { patchGuildChannelMessages, patchInteractionTextResponses } from '../utils/uppercaseMessages.js';
 
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
+    patchInteractionTextResponses(interaction);
+    if (interaction.guild) patchGuildChannelMessages(interaction.guild);
     if (interaction.isButton() || interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu() || interaction.isModalSubmit()) {
       if (interaction.customId?.startsWith('jsetup:')) {
         const setupCommand = client.commands.get('setup-jail');
