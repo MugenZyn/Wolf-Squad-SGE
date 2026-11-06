@@ -34,6 +34,28 @@ function renderAnnouncement(template, values) {
   return String(template ?? '').replace(/\{\{(user|server|moderator|role|reason|duration)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
 }
 
+const JAIL_ROLE_PAGE_SIZE = 23;
+
+function buildJailRoleMenu(token, roles, page) {
+  const pageCount = Math.max(1, Math.ceil(roles.length / JAIL_ROLE_PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, Number(page) || 0), pageCount - 1);
+  const options = roles
+    .slice(safePage * JAIL_ROLE_PAGE_SIZE, (safePage + 1) * JAIL_ROLE_PAGE_SIZE)
+    .map(role => ({ label: clip(role.name, 100), value: role.id, description: `Jail role: ${clip(role.name, 80)}` }));
+  options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous jail roles', disabled: safePage === 0 });
+  options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more jail roles', disabled: safePage >= pageCount - 1 });
+  return {
+    menu: new StringSelectMenuBuilder()
+      .setCustomId(`choose_jail_role:${token}:${safePage}`)
+      .setPlaceholder(`Choose a registered jail role (page ${safePage + 1}/${pageCount})`)
+      .setMinValues(1)
+      .setMaxValues(1)
+      .addOptions(options),
+    page: safePage,
+    pageCount,
+  };
+}
+
 function clip(value, max = 1000) {
   const text = String(value ?? '');
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
@@ -87,10 +109,12 @@ export default {
     const jail = guildConfig?.jail ?? {};
     const configuredRoles = Array.isArray(jail.roles) ? jail.roles : [];
     const roles = [];
-    for (const item of configuredRoles.slice(0, 25)) {
-      const role = await interaction.guild.roles.fetch(item.roleId).catch(() => null);
+    const configuredRoleIds = [...new Set(configuredRoles.map(item => item?.roleId).filter(Boolean))];
+    const fetchedRoles = await Promise.all(configuredRoleIds.map(id => interaction.guild.roles.fetch(id).catch(() => null)));
+    for (const role of fetchedRoles) {
       if (role && role.id !== interaction.guild.id) roles.push(role);
     }
+    roles.sort((a, b) => a.name.localeCompare(b.name));
     if (!roles.length) return interaction.reply({ content: 'No jail roles are registered. Run /setup-jail first.', flags: MessageFlags.Ephemeral });
     const forum = jail.evidenceForumId ? await interaction.guild.channels.fetch(jail.evidenceForumId).catch(() => null) : null;
     if (!forum || forum.type !== 15) return interaction.reply({ content: 'The configured jail evidence forum is missing or is not a forum. Run /setup-jail again with a valid forum.', flags: MessageFlags.Ephemeral });
@@ -113,25 +137,37 @@ export default {
       });
     }
 
-    const menu = new StringSelectMenuBuilder()
-      .setCustomId('choose_jail_role')
-      .setPlaceholder('Choose a registered jail role')
-      .addOptions(assignableRoles.map(role => ({ label: clip(role.name, 100), value: role.id, description: `Jail role: ${clip(role.name, 80)}` })));
+    const pickerToken = interaction.id;
+    let selectedRoleId;
+    let currentRolePage = 0;
+    const firstPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage);
     await interaction.reply({
-      content: `Choose the jail role for **${clip(target.user.tag, 80)}**:`,
-      components: [new ActionRowBuilder().addComponents(menu)],
+      content: `Choose the jail role for **${clip(target.user.tag, 80)}**. Page 1 of ${firstPicker.pageCount}.`,
+      components: [new ActionRowBuilder().addComponents(firstPicker.menu)],
       flags: MessageFlags.Ephemeral,
     });
 
-    let selectedRoleId;
     try {
       const promptMessage = await interaction.fetchReply();
-      const selection = await promptMessage.awaitMessageComponent({
-        time: 60000,
-        filter: i => i.user.id === interaction.user.id && i.customId === 'choose_jail_role',
-      });
-      selectedRoleId = selection.values[0];
-      await selection.deferUpdate();
+      while (!selectedRoleId) {
+        const selection = await promptMessage.awaitMessageComponent({
+          time: 60000,
+          filter: i => i.user.id === interaction.user.id && i.customId.startsWith(`choose_jail_role:${pickerToken}:`),
+        });
+        const selected = selection.values[0];
+        const pageValue = Number.parseInt(selection.customId.split(':').at(-1), 10) || 0;
+        if (selected === '__previous_page__' || selected === '__next_page__') {
+          currentRolePage = selected === '__previous_page__' ? pageValue - 1 : pageValue + 1;
+          const nextPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage);
+          await selection.update({
+            content: `Choose the jail role for **${clip(target.user.tag, 80)}**. Page ${nextPicker.page + 1} of ${nextPicker.pageCount}.`,
+            components: [new ActionRowBuilder().addComponents(nextPicker.menu)],
+          });
+          continue;
+        }
+        selectedRoleId = selected;
+        await selection.deferUpdate();
+      }
     } catch {
       return interaction.editReply({ content: 'Jail role selection timed out. Run /jail again.', components: [] });
     }
