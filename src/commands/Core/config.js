@@ -7,7 +7,7 @@ import { updateGuildConfig } from '../../services/config/guildConfig.js';
 const SETTINGS = [
   { label: 'Default sentence', value: 'default_seconds', description: 'Seconds, or INFINITE' },
   { label: 'Minimum sentence', value: 'minimum_seconds', description: 'Minimum jail duration in seconds' },
-  { label: 'Evidence messages', value: 'evidence_count', description: 'Number of messages to forward (1–5)' },
+  { label: 'Evidence messages', value: 'evidence_count', description: 'Number of messages to forward (1–10)' },
   { label: 'Default evidence note', value: 'default_message', description: 'Text shown in evidence; CLEAR removes it' },
 ];
 
@@ -276,7 +276,7 @@ export default {
         if (jail.defaultSentenceSeconds != null && jail.defaultSentenceSeconds < next) return interaction.reply({ content: 'Minimum cannot exceed the configured finite default sentence.', flags: MessageFlags.Ephemeral });
         jail.minimumSentenceSeconds = next;
       } else if (field === 'evidence_count') {
-        if (!/^[1-5]$/.test(raw)) return interaction.reply({ content: 'Evidence message count must be between 1 and 5.', flags: MessageFlags.Ephemeral });
+        if (!/^(?:[1-9]|10)$/.test(raw)) return interaction.reply({ content: 'Evidence message count must be between 1 and 10.', flags: MessageFlags.Ephemeral });
         jail.evidenceMessageCount = Number(raw);
       } else if (field === 'default_message') {
         jail.defaultMessage = raw.toUpperCase() === 'CLEAR' ? '' : raw;
