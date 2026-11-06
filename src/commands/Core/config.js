@@ -174,14 +174,24 @@ function buildPaginatedChannelPicker(key, page, channels) {
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`jconfig:pick_channel:${key}:${safePage}`)
-    .setPlaceholder(`Choose ${key === 'categoryId' ? 'a category' : 'a text channel'} (page ${safePage + 1}/${pageCount})`)
+    .setPlaceholder(`Choose ${({
+      categoryId: 'a category',
+      channelId: 'a text channel',
+      evidenceForumId: 'an evidence forum',
+      actionLogChannelId: 'an announcement channel',
+    })[key] ?? 'a channel'} (page ${safePage + 1}/${pageCount})`)
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(options);
 
   return {
     menu,
-    content: `Choose the ${key === 'categoryId' ? 'jail category' : 'default jail channel'} — page ${safePage + 1} of ${pageCount} (${channels.length} available).`,
+    content: `Choose the ${({
+      categoryId: 'jail category',
+      channelId: 'default jail channel',
+      evidenceForumId: 'jail evidence forum',
+      actionLogChannelId: 'announcement channel',
+    })[key] ?? 'channel'} — page ${safePage + 1} of ${pageCount} (${channels.length} available).`,
   };
 }
 
@@ -289,13 +299,17 @@ export default {
       };
       const setting = settings[action];
       if (!setting) return false;
-      if (action === 'default_jail' || action === 'category') {
+      if (['default_jail', 'category', 'evidence_forum', 'announcement'].includes(action)) {
         const channels = await getSelectableChannels(interaction.guild, setting.type);
         if (!channels.length) {
+          const emptyLabels = {
+            default_jail: 'text channels',
+            category: 'categories',
+            evidence_forum: 'forum channels',
+            announcement: 'text channels',
+          };
           return interaction.editReply({
-            content: action === 'default_jail'
-              ? 'No text channels were found in this server.'
-              : 'No categories were found in this server.',
+            content: `No ${emptyLabels[action]} were found in this server.`,
             embeds: [],
             components: [],
           });
@@ -309,11 +323,12 @@ export default {
     }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:pick_channel:')) {
       const [, , key, pageValue] = interaction.customId.split(':');
-      const setting = key === 'channelId'
-        ? { label: 'Default jail channel', type: ChannelType.GuildText }
-        : key === 'categoryId'
-          ? { label: 'Jail category', type: ChannelType.GuildCategory }
-          : null;
+      const setting = {
+        channelId: { label: 'Default jail channel', type: ChannelType.GuildText },
+        categoryId: { label: 'Jail category', type: ChannelType.GuildCategory },
+        evidenceForumId: { label: 'Evidence forum', type: ChannelType.GuildForum },
+        actionLogChannelId: { label: 'Announcement channel', type: ChannelType.GuildText },
+      }[key] ?? null;
       if (!setting) return interaction.editReply({ content: 'Invalid channel setting.', embeds: [], components: [] });
 
       const selected = interaction.values[0];
