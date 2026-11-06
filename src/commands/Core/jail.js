@@ -30,6 +30,10 @@ function legacySentenceSeconds(value) {
   return Object.prototype.hasOwnProperty.call(legacy, value) ? legacy[value] : null;
 }
 
+function renderAnnouncement(template, values) {
+  return String(template ?? '').replace(/\\{\\{(user|server|moderator|role|reason|duration)\\}\\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
+}
+
 function clip(value, max = 1000) {
   const text = String(value ?? '');
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
@@ -256,6 +260,16 @@ export default {
     });
     await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases, history } });
     if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: selectedRole.id, releaseAt });
+    const jailAnnouncement = renderAnnouncement(jail.jailAnnouncement || '{{user}} HAS BEEN JAILED', {
+      user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`,
+      role: `<@&${selectedRole.id}>`, reason: jailReason, duration: durationLabel,
+    });
+    const roleChannelId = configuredRoles.find(item => item.roleId === selectedRole.id)?.channelId || jail.channelId;
+    const announcementChannelIds = [...new Set([roleChannelId, jail.actionLogChannelId].filter(Boolean))];
+    for (const channelId of announcementChannelIds) {
+      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
+    }
     await interaction.followUp({ content: evidenceResult, flags: MessageFlags.Ephemeral });
   },
 };
