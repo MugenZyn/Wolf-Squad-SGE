@@ -3,27 +3,21 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // Pella may launch this file directly instead of using "npm start".
-// Pull the configured branch before starting, then relaunch so updated
-// source files are loaded by a fresh Node.js process.
+// Wait for the pull to finish before importing/starting the bot.
 if (process.env.WOLF_SQUAD_GIT_SYNCED !== '1') {
-  const pull = spawn('git', ['pull', '--ff-only', 'origin', 'newmain'], {
-    cwd: process.cwd(),
-    stdio: 'inherit',
+  const pullCode = await new Promise(resolve => {
+    const pull = spawn('git', ['pull', '--ff-only', 'origin', 'newmain'], {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+    });
+    pull.on('error', error => {
+      console.error('[git-sync] Could not run git pull; starting current files:', error.message);
+      resolve(null);
+    });
+    pull.on('close', code => resolve(code));
   });
 
-  pull.on('error', error => {
-    console.error('[git-sync] Could not run git pull; starting current files:', error.message);
-    process.env.WOLF_SQUAD_GIT_SYNCED = '1';
-    import('./app.js');
-  });
-
-  pull.on('close', code => {
-    if (code !== 0) {
-      console.error(`[git-sync] git pull failed (exit ${code}); starting current files.`);
-      process.env.WOLF_SQUAD_GIT_SYNCED = '1';
-      return;
-    }
-
+  if (pullCode === 0) {
     const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
       cwd: process.cwd(),
       env: { ...process.env, WOLF_SQUAD_GIT_SYNCED: '1' },
@@ -34,8 +28,11 @@ if (process.env.WOLF_SQUAD_GIT_SYNCED !== '1') {
       process.exit(1);
     });
     process.exit(0);
-  });
+  }
+
+  console.error(`[git-sync] Pull did not complete successfully (exit ${pullCode}); starting current files.`);
 }
+
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
