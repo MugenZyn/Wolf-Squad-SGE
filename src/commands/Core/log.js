@@ -54,12 +54,12 @@ export default {
       embeds: [{
         color: 0x8B0000,
         title: `Jail history — ${user.tag}`,
-        description: `**Member:** <@${'${user.id}'}> (\${user.id})\nShowing ${Math.min(10, history.length)} of ${history.length} recorded jail entries.`,
+        description: `**Member:** <@${user.id}> (${user.id})\nShowing ${Math.min(10, history.length)} of ${history.length} recorded jail entries.`,
         fields,
         footer: { text: 'Only the 10 most recent entries are shown.' },
       }],
       flags: MessageFlags.Ephemeral,
-      allowedMentions: { parse: [], users: [user.id, ...history.slice(0, 10).map(entry => entry.moderatorId).filter(Boolean)] },
+      allowedMentions: { parse: [] },
     });
   },
 };
