@@ -264,8 +264,9 @@ export default {
       user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`,
       role: `<@&${selectedRole.id}>`, reason: jailReason, duration: durationLabel,
     });
-    const roleChannelId = configuredRoles.find(item => item.roleId === selectedRole.id)?.channelId || jail.channelId;
-    const announcementChannelIds = [...new Set([roleChannelId, jail.actionLogChannelId].filter(Boolean))];
+    // Post the jail announcement in the channel where /jail was invoked,
+    // rather than the jail role's private destination channel.
+    const announcementChannelIds = [...new Set([interaction.channelId, jail.actionLogChannelId].filter(Boolean))];
     for (const channelId of announcementChannelIds) {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
