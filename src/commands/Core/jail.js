@@ -434,7 +434,7 @@ export default {
       for (let index = 0; index < roleListChunks.length; index++) {
         try {
           await evidenceThread.send({
-            content: `**Jail roles assigned (${index + 1}/${roleListChunks.length}):**\\n${roleListChunks[index]}`,
+            content: `**Jail roles assigned (${index + 1}/${roleListChunks.length}):**\n${roleListChunks[index]}`,
             allowedMentions: { parse: [] },
           });
         } catch (error) {
@@ -502,6 +502,6 @@ export default {
       alreadyHeldRoles.length ? `Already held and skipped: ${alreadyHeldRoles.map(role => role.name).join(', ')}.` : '',
       failedRoleAssignments.length ? `Could not assign: ${failedRoleAssignments.map(item => item.role.name).join(', ')}.` : '',
     ].filter(Boolean);
-    await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings].join('\\n'), flags: MessageFlags.Ephemeral });
+    await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings].join('\n'), flags: MessageFlags.Ephemeral });
   },
 };
