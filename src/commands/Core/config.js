@@ -25,7 +25,7 @@ function panelPayload(jail) {
     .addFields(
       { name: 'Default sentence', value: formatDuration(jail.defaultSentenceSeconds), inline: true },
       { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
-      { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 1), inline: true },
+      { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 5), inline: true },
       { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
       { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
       { name: 'Jail role → channel', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => ` <@&${item.roleId}> → ${(item.channelId || jail.channelId) ? `<#${item.channelId || jail.channelId}>` : 'No channel linked'}`).join('\n').slice(0, 1024) : 'None configured', inline: false },
