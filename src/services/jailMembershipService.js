@@ -9,8 +9,6 @@ function isPausedCase(jailCase) {
 export async function pauseJailCasesForDeparture(member, client) {
   if (!member?.guild || !member.id) return 0;
 
-  // Stop the in-memory release timer immediately; the persisted case is paused below.
-  cancelJailRelease(member.guild.id, member.id);
   const config = await getGuildConfig(client, member.guild.id);
   const jail = config?.jail ?? {};
   const activeCases = Array.isArray(jail.activeCases) ? [...jail.activeCases] : [];
@@ -36,9 +34,20 @@ export async function pauseJailCasesForDeparture(member, client) {
 
   if (!pausedCount) return 0;
 
-  await updateGuildConfig(client, member.guild.id, {
-    jail: { ...jail, activeCases: updatedCases },
-  });
+  // Cancel only after the persisted case has been read. Restore its timer if the write fails.
+  cancelJailRelease(member.guild.id, member.id);
+  try {
+    await updateGuildConfig(client, member.guild.id, {
+      jail: { ...jail, activeCases: updatedCases },
+    });
+  } catch (error) {
+    for (const jailCase of activeCases) {
+      if (jailCase?.userId === member.id && jailCase.releaseAt && !isPausedCase(jailCase)) {
+        scheduleJailRelease(client, member.guild.id, jailCase);
+      }
+    }
+    throw error;
+  }
 
   return pausedCount;
 }
