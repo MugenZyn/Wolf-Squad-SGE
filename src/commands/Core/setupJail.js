@@ -12,6 +12,12 @@ export default {
     const { getGuildConfig } = await import('../../services/config/guildConfig.js');
     const current = await getGuildConfig(interaction.client, interaction.guild.id);
     const existingJail = current?.jail ?? {};
+    if (hasExistingJailSetup(existingJail)) {
+      return interaction.reply({
+        content: 'A jail system is already configured in this server. Use /config to manage the existing jail system instead of setting up another one.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
     setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, selections: {}, existing: {
       jailRoleIds: (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean),
@@ -57,6 +63,9 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
     const existingJail = guildConfig?.jail ?? {};
+    if (hasExistingJailSetup(existingJail)) {
+      return interaction.editReply('A jail system is already configured in this server. Use /config to manage the existing jail system instead of setting up another one.');
+    }
     const oldJailRoleIds = (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean);
     const reason = `Jail setup requested by ${user.tag} (${user.id})`;
     let jailRoleIds = selections.jailRoleIds?.length ? selections.jailRoleIds : oldJailRoleIds;
@@ -250,4 +259,16 @@ function buildSetupPanel(token) {
     new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('5. Select existing evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success)),
   ];
+}
+
+
+function hasExistingJailSetup(jail = {}) {
+  return Boolean(
+    (Array.isArray(jail.roles) && jail.roles.some(item => item?.roleId)) ||
+    jail.channelId ||
+    jail.categoryId ||
+    jail.evidenceForumId ||
+    jail.logsChannelId ||
+    jail.lawyerRoleId
+  );
 }
