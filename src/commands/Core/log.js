@@ -44,7 +44,7 @@ export default {
       name: `#${history.length - index} • ${new Date(entry.jailedAt || 0).toLocaleString()}`,
       value: [
         `**Reason:** ${String(entry.reason || 'No reason recorded').slice(0, 700)}`,
-        `**Moderator:** <@${entry.moderatorId || '0'}>`,
+        `**Moderator:** ${entry.moderatorId ? `<@${entry.moderatorId}>` : 'Unknown'}`,
         `**Sentence:** ${formatSentence(entry.sentenceSeconds)}`,
         `**Jail role:** <@&${entry.roleId}>`,
       ].join('\n'),
@@ -54,12 +54,12 @@ export default {
       embeds: [{
         color: 0x8B0000,
         title: `Jail history — ${user.tag}`,
-        description: `Showing ${Math.min(10, history.length)} of ${history.length} recorded jail entries.`,
+        description: `**Member:** <@${'${user.id}'}> (\${user.id})\nShowing ${Math.min(10, history.length)} of ${history.length} recorded jail entries.`,
         fields,
         footer: { text: 'Only the 10 most recent entries are shown.' },
       }],
       flags: MessageFlags.Ephemeral,
-      allowedMentions: { parse: [] },
+      allowedMentions: { parse: [], users: [user.id, ...history.slice(0, 10).map(entry => entry.moderatorId).filter(Boolean)] },
     });
   },
 };
