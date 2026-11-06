@@ -16,6 +16,77 @@ const SETTINGS = [
 const pendingRoleRemovals = new Map();
 const pendingRoleSelections = new Map();
 
+const CONFIG_ROLE_PAGE_SIZE = 22;
+const CONFIG_CHANNEL_ROLE_PAGE_SIZE = 23;
+
+function formatRoleMentions(ids, maxLength = 900) {
+  const mentions = [];
+  let used = 0;
+  for (const id of ids ?? []) {
+    const mention = `<@&${id}>`;
+    const addition = mentions.length ? `, ${mention}` : mention;
+    if (used + addition.length > maxLength) break;
+    mentions.push(mention);
+    used += addition.length;
+  }
+  const remaining = Math.max(0, (ids?.length ?? 0) - mentions.length);
+  return `${mentions.join(', ')}${remaining ? ` …and ${remaining} more` : ''}` || 'None';
+}
+
+function buildPaginatedRoleMenu(customId, placeholder, roles, page, selectedIds = [], options = {}) {
+  const multiple = options.multiple ?? true;
+  const clearable = options.clearable ?? true;
+  const pageSize = clearable ? CONFIG_ROLE_PAGE_SIZE : CONFIG_CHANNEL_ROLE_PAGE_SIZE;
+  const pageCount = Math.max(1, Math.ceil(roles.length / pageSize));
+  const safePage = Math.min(Math.max(0, Number(page) || 0), pageCount - 1);
+  const selected = new Set(selectedIds);
+  const menuOptions = roles
+    .slice(safePage * pageSize, (safePage + 1) * pageSize)
+    .map(role => ({
+      label: role.name.slice(0, 100),
+      value: role.id,
+      description: options.descriptionForRole?.(role) ?? 'Server role',
+      default: selected.has(role.id),
+    }));
+
+  if (clearable) menuOptions.push({ label: 'Clear all selected', value: '__clear_all__', description: 'Clear selections from every page' });
+  menuOptions.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous roles', disabled: safePage === 0 });
+  menuOptions.push({ label: 'Next page →', value: '__next_page__', description: 'Show more roles', disabled: safePage >= pageCount - 1 });
+  if (!roles.length) menuOptions.unshift({ label: 'No selectable roles found', value: '__no_roles__', description: 'No roles are available', disabled: true });
+
+  return {
+    menu: new StringSelectMenuBuilder()
+      .setCustomId(customId)
+      .setPlaceholder(`${placeholder} (page ${safePage + 1}/${pageCount})`)
+      .setMinValues(0)
+      .setMaxValues(multiple ? 25 : 1)
+      .addOptions(menuOptions),
+    page: safePage,
+    pageCount,
+    pageSize,
+  };
+}
+
+function updatePagedRoleSelection(state, page, values, options = {}) {
+  const pageSize = options.pageSize ?? CONFIG_ROLE_PAGE_SIZE;
+  const currentPageIds = new Set(state.roles.slice(page * pageSize, (page + 1) * pageSize).map(role => role.id));
+  const selectedValues = values.filter(value => currentPageIds.has(value));
+  if (values.includes('__clear_all__')) {
+    state.selectedIds = [];
+  } else if (state.mode === 'single') {
+    if (selectedValues.length) state.selectedIds = [selectedValues[0]];
+    else if (!values.some(value => value.startsWith('__'))) state.selectedIds = [];
+  } else {
+    state.selectedIds = [...new Set([
+      ...state.selectedIds.filter(id => !currentPageIds.has(id)),
+      ...selectedValues,
+    ])];
+  }
+  if (values.includes('__previous_page__')) state.page = Math.max(0, page - 1);
+  if (values.includes('__next_page__')) state.page = Math.min(Math.ceil(state.roles.length / pageSize) - 1, page + 1);
+  return state;
+}
+
 function formatDuration(value) {
   return value == null ? 'Infinite' : `${Number(value).toLocaleString()} seconds`;
 }
@@ -50,9 +121,9 @@ function panelPayload(jail, page = 'settings') {
   } else if (page === 'roles') {
     embed.setDescription('Manage which roles are used by the jail system.')
       .addFields(
-        { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
+        { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? formatRoleMentions(jail.roles.map(item => item.roleId)) : 'None configured', inline: false },
         { name: 'Lawyer role', value: jail.lawyerRoleId ? `<@&${jail.lawyerRoleId}>` : 'None configured', inline: true },
-        { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? jail.policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None configured', inline: true },
+        { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? formatRoleMentions(jail.policemanRoleIds) : 'None configured', inline: true },
       );
     const roleMenu = new StringSelectMenuBuilder().setCustomId('jconfig:role_action').setPlaceholder('Choose a role action')
       .addOptions(
@@ -70,7 +141,7 @@ function panelPayload(jail, page = 'settings') {
         { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
         { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
         { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
-        { name: 'Role-specific jail channels', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}> → ${item.channelId ? `<#${item.channelId}>` : 'Default channel'}`).join('\\n').slice(0, 1024) : 'No jail roles configured', inline: false },
+        { name: 'Role-specific jail channels', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.slice(0, 18).map(item => `<@&${item.roleId}> → ${item.channelId ? `<#${item.channelId}>` : 'Default channel'}`).join('\\n') + (jail.roles.length > 18 ? `\\n…and ${jail.roles.length - 18} more` : '') : 'No jail roles configured', inline: false },
       );
     const channelMenu = new StringSelectMenuBuilder().setCustomId('jconfig:channel_action').setPlaceholder('Choose a channel setting')
       .addOptions(
@@ -130,17 +201,24 @@ async function getJailChannelOptions(guild, jail = {}) {
   ).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function jailChannelMenu(customId, placeholder, channels) {
-  return new StringSelectMenuBuilder()
-    .setCustomId(customId)
-    .setPlaceholder(placeholder)
-    .setMinValues(1)
-    .setMaxValues(1)
-    .addOptions(channels.slice(0, 25).map(channel => ({
+function jailChannelMenu(roleId, page, channels) {
+  const pageCount = Math.max(1, Math.ceil(channels.length / CONFIG_CHANNEL_ROLE_PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, Number(page) || 0), pageCount - 1);
+  const options = channels
+    .slice(safePage * CONFIG_CHANNEL_ROLE_PAGE_SIZE, (safePage + 1) * CONFIG_CHANNEL_ROLE_PAGE_SIZE)
+    .map(channel => ({
       label: channel.name.slice(0, 100),
       value: channel.id,
-      description: 'Jail channel',
-    })));
+      description: channel.parent?.name ? `In ${channel.parent.name}`.slice(0, 100) : 'Jail channel',
+    }));
+  options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous jail channels', disabled: safePage === 0 });
+  options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more jail channels', disabled: safePage >= pageCount - 1 });
+  return new StringSelectMenuBuilder()
+    .setCustomId(`jconfig:channel:${roleId}:${safePage}`)
+    .setPlaceholder(`Choose a jail channel (page ${safePage + 1}/${pageCount})`)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(options);
 }
 
 const CHANNEL_PICKER_PAGE_SIZE = 23;
@@ -179,6 +257,7 @@ function buildPaginatedChannelPicker(key, page, channels) {
       channelId: 'a text channel',
       evidenceForumId: 'an evidence forum',
       actionLogChannelId: 'an announcement channel',
+      logsChannelId: 'a logs channel',
     })[key] ?? 'a channel'} (page ${safePage + 1}/${pageCount})`)
     .setMinValues(1)
     .setMaxValues(1)
@@ -191,6 +270,7 @@ function buildPaginatedChannelPicker(key, page, channels) {
       channelId: 'default jail channel',
       evidenceForumId: 'jail evidence forum',
       actionLogChannelId: 'announcement channel',
+      logsChannelId: 'logs channel',
     })[key] ?? 'channel'} — page ${safePage + 1} of ${pageCount} (${channels.length} available).`,
   };
 }
