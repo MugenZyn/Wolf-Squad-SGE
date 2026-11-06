@@ -225,38 +225,30 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       allowedMentions: { parse: [] },
     }).catch(() => null);
 
-    return interaction.editReply([
-      `Jail channel configured: ${jailChannel} (${jailChannel.id})`,
-      category ? `Jail category: ${category} (${category.id})` : 'The existing jail channel has no category; no category was created.',
-      `Evidence forum: ${evidenceForum} (${evidenceForum.id})`,
-      `Logs channel: ${logsChannel} (${logsChannel.id})`,
-      `Jail roles: ${uniqueJailRoles.map(role => `<@&${role.id}>`).join(', ')}`,
-      lawyerRole ? `Lawyer role can view the entire jail category and evidence forum: <@&${lawyerRole.id}>` : 'No lawyer role configured.',
-      'Setup applies permissions once. Later manual staff changes are not automatically synchronized or repaired.'
-    ].join('\n'));
+    return interaction.editReply('Jail system setup completed.');
 }
 
 const setupSessions = new Map();
 
 function setupPanelText(session) {
   const s = session.selections;
+  const jailRoleIds = s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds;
   return [
-    '**Jail setup** — choose the resources below, then press Save.',
-    `Jail roles: ${(s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).length ? (s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).map(id => `<@&${id}>`).join(', ') : 'None selected — SGE - JAIL will be created or reused automatically'}`,
-    `Lawyer role: ${s.lawyerRoleId ? `<@&${s.lawyerRoleId}>` : (session.existing.lawyerRoleId ? `<@&${session.existing.lawyerRoleId}>` : 'Not selected (will create or reuse SGE - LAWYER)')}`,
-    `Category: ${s.categoryId ? `<#${s.categoryId}>` : (s.jailChannelId ? 'Use the selected channel category (if any)' : 'Create default JAIL category')}`,
-    `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create a new jail channel'}`,
-    `Evidence forum: ${s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create default jail-evidence forum'}`,
-    'Selections are only applied when you save.'
-  ].join('\n');
+    '**Jail setup**',
+    `Jail roles: ${jailRoleIds.length ? jailRoleIds.map(id => `<@&${id}>`).join(', ') : 'Automatic'}`,
+    `Lawyer role: ${s.lawyerRoleId ? `<@&${s.lawyerRoleId}>` : (session.existing.lawyerRoleId ? `<@&${session.existing.lawyerRoleId}>` : 'Automatic')}`,
+    `Category: ${s.categoryId ? `<#${s.categoryId}>` : 'Automatic'}`,
+    `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Automatic'}`,
+    `Evidence forum: ${s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Automatic'}`,
+  ].join('\\n');
 }
 
 function buildSetupPanel(token) {
   return [
-    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleIds`).setPlaceholder('1. Select jail roles (optional; leave empty to create/reuse SGE - JAIL)').setMinValues(0).setMaxValues(25)),
-    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('2. Select lawyer role (leave empty to create/reuse SGE - LAWYER)').setMinValues(0).setMaxValues(1)),
-    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('3. Select existing jail channel (leave empty to create)').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
-    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('5. Select existing evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleIds`).setPlaceholder('Select jail roles').setMinValues(0).setMaxValues(25)),
+    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('Select lawyer role').setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('Select jail channel').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('Select evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success)),
   ];
 }
