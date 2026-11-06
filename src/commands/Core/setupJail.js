@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, PermissionFlagsBits, SlashCommandBuilder, MessageFlags, StringSelectMenuBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, ModalBuilder, PermissionFlagsBits, SlashCommandBuilder, MessageFlags, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 
 const ID_PATTERN = /^\d{17,20}$/;
@@ -44,7 +44,7 @@ export default {
         .map(channel => ({ id: channel.id, name: channel.name, parentName: channel.parent?.name ?? null })),
     };
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
-    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', pages: {}, roleChoices, channelChoices, selections: { managePermissions: true }, existing: {
+    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', pages: {}, roleChoices, channelChoices, activeRoleField: 'jailRoleIds', roleSearch: {}, selections: { managePermissions: true }, existing: {
       jailRoleIds: (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean),
       lawyerRoleId: existingJail.lawyerRoleId ?? null,
       policemanRoleIds: existingJail.policemanRoleIds ?? [],
@@ -59,10 +59,53 @@ export default {
   },
 
   async handleComponent(interaction, client) {
-    const [, token, field, pageValue] = interaction.customId.split(':');
+    const idParts = interaction.customId.split(':');
+    const token = idParts[1];
+    const field = idParts[2];
+    const pageValue = idParts[3];
     const session = setupSessions.get(token);
     if (!session || session.userId !== interaction.user.id || session.guildId !== interaction.guildId) {
       await interaction.reply({ content: 'This setup panel expired. Run /setup-jail again.', flags: MessageFlags.Ephemeral });
+      return true;
+    }
+    if (interaction.isButton() && field === 'role_tab') {
+      if (['jailRoleIds', 'lawyerRoleId', 'policemanRoleIds'].includes(pageValue)) {
+        session.activeRoleField = pageValue;
+        await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'roles') });
+      }
+      return true;
+    }
+    if (interaction.isButton() && ['role_prev', 'role_next', 'role_clear', 'role_clear_search', 'role_search'].includes(field)) {
+      const roleField = pageValue;
+      if (!['jailRoleIds', 'lawyerRoleId', 'policemanRoleIds'].includes(roleField)) return true;
+      if (field === 'role_search') {
+        const modal = new ModalBuilder().setCustomId(`jsetup:${token}:role_search_modal:${roleField}`).setTitle('Search server roles');
+        const input = new TextInputBuilder().setCustomId('role_query').setLabel('Role name contains').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Leave empty to show all roles');
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (field === 'role_clear') {
+        if (roleField === 'lawyerRoleId') delete session.selections.lawyerRoleId;
+        else session.selections[roleField] = [];
+      } else if (field === 'role_clear_search') {
+        session.roleSearch[roleField] = '';
+        session.pages[roleField] = 0;
+      } else {
+        const filtered = getSetupRoleChoices(session, roleField);
+        const pageCount = Math.max(1, Math.ceil(filtered.length / SETUP_ROLE_PAGE_SIZE));
+        const current = session.pages[roleField] ?? 0;
+        session.pages[roleField] = Math.min(Math.max(0, current + (field === 'role_prev' ? -1 : 1)), pageCount - 1);
+      }
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'roles') });
+      return true;
+    }
+    if (interaction.isModalSubmit() && interaction.customId.startsWith(`jsetup:${token}:role_search_modal:`)) {
+      const roleField = interaction.customId.split(':').at(-1);
+      if (!['jailRoleIds', 'lawyerRoleId', 'policemanRoleIds'].includes(roleField)) return interaction.reply({ content: 'Invalid role search.', flags: MessageFlags.Ephemeral });
+      session.roleSearch[roleField] = interaction.fields.getTextInputValue('role_query').trim();
+      session.pages[roleField] = 0;
+      await interaction.reply({ content: 'Role search updated.', flags: MessageFlags.Ephemeral });
       return true;
     }
     if (interaction.isButton() && field === 'next') {
@@ -108,45 +151,24 @@ export default {
       await configureJail(interaction, await getGuildConfig(client, interaction.guildId), { ...session.existing, ...session.selections });
       return true;
     }
-    if (interaction.isStringSelectMenu() && ['jailRoleIds', 'lawyerRoleId', 'policemanRoleIds'].includes(field)) {
-      const roles = session.roleChoices ?? [];
-      const currentPage = Number.parseInt(pageValue, 10) || 0;
-      const pageSize = SETUP_ROLE_PAGE_SIZE;
-      const visibleRoleIds = roles.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map(role => role.id);
-      const values = interaction.values ?? [];
-      const skipWasEnabled = session.selections.managePermissions === false;
-
-      if (values.includes('__clear_all__')) {
-        if (field === 'lawyerRoleId') delete session.selections.lawyerRoleId;
-        else session.selections[field] = [];
-      } else if (field === 'lawyerRoleId') {
-        const selectedRoleId = values.find(value => visibleRoleIds.includes(value));
-        if (selectedRoleId) session.selections.lawyerRoleId = selectedRoleId;
-        else if (!values.some(value => value.startsWith('__'))) delete session.selections.lawyerRoleId;
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith(`jsetup:${token}:role_select:`)) {
+      const parts = interaction.customId.split(':');
+      const roleField = parts[3];
+      const currentPage = Number.parseInt(parts[4], 10) || 0;
+      const roles = getSetupRoleChoices(session, roleField);
+      const visibleIds = new Set(roles.slice(currentPage * SETUP_ROLE_PAGE_SIZE, (currentPage + 1) * SETUP_ROLE_PAGE_SIZE).map(role => role.id));
+      const selected = interaction.values.filter(id => visibleIds.has(id));
+      if (roleField === 'lawyerRoleId') {
+        if (selected[0]) session.selections.lawyerRoleId = selected[0];
       } else {
-        const selectedOnPage = values.filter(value => visibleRoleIds.includes(value));
-        const previouslySelected = session.selections[field] ?? session.existing[field] ?? [];
-        session.selections[field] = [
-          ...new Set([
-            ...previouslySelected.filter(id => !visibleRoleIds.includes(id)),
-            ...selectedOnPage,
-          ]),
-        ];
+        const prior = session.selections[roleField] ?? session.existing[roleField] ?? [];
+        session.selections[roleField] = [...new Set([...prior.filter(id => !visibleIds.has(id)), ...selected])];
       }
-
-      if (values.includes('__previous_page__') || values.includes('__next_page__')) {
-        const pageCount = Math.max(1, Math.ceil(roles.length / pageSize));
-        const nextPage = currentPage + (values.includes('__previous_page__') ? -1 : 1);
-        session.pages[field] = Math.min(Math.max(0, nextPage), pageCount - 1);
-      }
-
+      const skipWasEnabled = session.selections.managePermissions === false;
       if (skipWasEnabled && !hasCompleteExistingSelections(session)) session.selections.managePermissions = true;
-      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, session.page) });
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'roles') });
       if (skipWasEnabled && session.selections.managePermissions !== false) {
-        await interaction.followUp({
-          content: 'Permission edits were turned back on because one of the required existing selections was removed.',
-          flags: MessageFlags.Ephemeral,
-        });
+        await interaction.followUp({ content: 'Permission edits were turned back on because one of the required existing selections was removed.', flags: MessageFlags.Ephemeral });
       }
       return true;
     }
@@ -450,34 +472,27 @@ function setupPanelEmbed(session) {
 const SETUP_CHANNEL_PAGE_SIZE = 22;
 const SETUP_ROLE_PAGE_SIZE = 22;
 
+function getSetupRoleChoices(session, field) {
+  const query = String(session?.roleSearch?.[field] ?? '').trim().toLowerCase();
+  return (session?.roleChoices ?? []).filter(role => !query || role.name.toLowerCase().includes(query));
+}
+
 function setupPaginatedRoleMenu(token, session, field, placeholder, multiple) {
-  const roles = session?.roleChoices ?? [];
+  const roles = getSetupRoleChoices(session, field);
   const pageCount = Math.max(1, Math.ceil(roles.length / SETUP_ROLE_PAGE_SIZE));
   const page = Math.min(Math.max(0, session?.pages?.[field] ?? 0), pageCount - 1);
   const stored = field === 'lawyerRoleId'
     ? [session?.selections?.lawyerRoleId ?? session?.existing?.lawyerRoleId].filter(Boolean)
     : (session?.selections?.[field] ?? session?.existing?.[field] ?? []);
   const selected = new Set(stored);
-  const options = roles
-    .slice(page * SETUP_ROLE_PAGE_SIZE, (page + 1) * SETUP_ROLE_PAGE_SIZE)
-    .map(role => ({
-      label: role.name.slice(0, 100),
-      value: role.id,
-      description: 'Server role',
-      default: selected.has(role.id),
-    }));
-
-  options.push({ label: 'Clear all selected', value: '__clear_all__', description: 'Clear this role selection' });
-  options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous roles', disabled: page === 0 });
-  options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more roles', disabled: page >= pageCount - 1 });
-  if (!roles.length) options[0] = { label: 'No selectable roles found', value: '__no_roles__', description: 'No roles are available', disabled: true };
-
+  const options = roles.slice(page * SETUP_ROLE_PAGE_SIZE, (page + 1) * SETUP_ROLE_PAGE_SIZE).map(role => ({
+    label: role.name.slice(0, 100), value: role.id, description: 'Server role', default: selected.has(role.id),
+  }));
+  if (!options.length) options.push({ label: 'No matching roles found', value: '__no_roles__', description: 'Change or clear the search', disabled: true });
   return new StringSelectMenuBuilder()
-    .setCustomId(`jsetup:${token}:${field}:${page}`)
+    .setCustomId(`jsetup:${token}:role_select:${field}:${page}`)
     .setPlaceholder(`${placeholder} (page ${page + 1}/${pageCount})`)
-    .setMinValues(0)
-    .setMaxValues(Math.min(multiple ? 25 : 1, Math.max(1, options.length)))
-    .addOptions(options);
+    .setMinValues(0).setMaxValues(multiple ? Math.max(1, options.length) : 1).addOptions(options);
 }
 
 function setupPaginatedChannelMenu(token, session, field, placeholder) {
@@ -527,11 +542,27 @@ function buildSetupPanel(token, page = 'roles') {
       ),
     ];
   }
+  const field = session?.activeRoleField ?? 'jailRoleIds';
+  const label = field === 'lawyerRoleId' ? 'Select lawyer role' : field === 'policemanRoleIds' ? 'Select policeman roles (optional)' : 'Select jail roles';
+  const choices = getSetupRoleChoices(session, field);
+  const pageCount = Math.max(1, Math.ceil(choices.length / SETUP_ROLE_PAGE_SIZE));
+  const page = Math.min(Math.max(0, session?.pages?.[field] ?? 0), pageCount - 1);
+  const query = session?.roleSearch?.[field] ?? '';
   return [
-    new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, 'jailRoleIds', 'Select jail roles', true)),
-    new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, 'lawyerRoleId', 'Select lawyer role', false)),
-    new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, 'policemanRoleIds', 'Select policeman roles (optional)', true)),
-    new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:next`).setLabel('Next: Channels').setStyle(ButtonStyle.Primary)),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_tab:jailRoleIds`).setLabel('Jail roles').setStyle(field === 'jailRoleIds' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_tab:lawyerRoleId`).setLabel('Lawyer role').setStyle(field === 'lawyerRoleId' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_tab:policemanRoleIds`).setLabel('Policeman roles').setStyle(field === 'policemanRoleIds' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    ),
+    new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, field, label, field !== 'lawyerRoleId')),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_prev:${field}`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_search:${field}`).setLabel('Search roles').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_clear_search:${field}`).setLabel('Clear search').setStyle(ButtonStyle.Secondary).setDisabled(!query),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_clear:${field}`).setLabel('Clear selection').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`jsetup:${token}:role_next:${field}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page >= pageCount - 1),
+    ),
+    new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:next`).setLabel('Next: Channels').setStyle(ButtonStyle.Success)),
   ];
 }
 
