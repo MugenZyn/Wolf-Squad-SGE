@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, ChannelSelectMenuBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, ChannelSelectMenuBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder, MessageFlags, StringSelectMenuBuilder } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 
 const ID_PATTERN = /^\d{17,20}$/;
@@ -20,8 +20,19 @@ export default {
         components: [],
       });
     }
+    const allChannels = await interaction.guild.channels.fetch();
+    const channelChoices = {
+      categoryId: allChannels
+        .filter(channel => channel.type === ChannelType.GuildCategory)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(channel => ({ id: channel.id, name: channel.name })),
+      jailChannelId: allChannels
+        .filter(channel => channel.type === ChannelType.GuildText)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(channel => ({ id: channel.id, name: channel.name, parentName: channel.parent?.name ?? null })),
+    };
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
-    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', selections: { managePermissions: true }, existing: {
+    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', pages: {}, channelChoices, selections: { managePermissions: true }, existing: {
       jailRoleIds: (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean),
       lawyerRoleId: existingJail.lawyerRoleId ?? null,
       policemanRoleIds: existingJail.policemanRoleIds ?? [],
@@ -36,7 +47,7 @@ export default {
   },
 
   async handleComponent(interaction, client) {
-    const [, token, field] = interaction.customId.split(':');
+    const [, token, field, pageValue] = interaction.customId.split(':');
     const session = setupSessions.get(token);
     if (!session || session.userId !== interaction.user.id || session.guildId !== interaction.guildId) {
       await interaction.reply({ content: 'This setup panel expired. Run /setup-jail again.', flags: MessageFlags.Ephemeral });
@@ -83,6 +94,29 @@ export default {
       await interaction.editReply({ content: 'CREATING...', embeds: [], components: [] });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       await configureJail(interaction, await getGuildConfig(client, interaction.guildId), { ...session.existing, ...session.selections });
+      return true;
+    }
+    if (interaction.isStringSelectMenu() && (field === 'categoryId' || field === 'jailChannelId')) {
+      const choices = session.channelChoices?.[field] ?? [];
+      const currentPage = Number.parseInt(pageValue, 10) || 0;
+      const selected = interaction.values[0];
+      if (selected === '__previous_page__' || selected === '__next_page__') {
+        const pageCount = Math.max(1, Math.ceil(choices.length / SETUP_CHANNEL_PAGE_SIZE));
+        session.pages[field] = Math.min(Math.max(0, currentPage + (selected === '__previous_page__' ? -1 : 1)), pageCount - 1);
+      } else if (selected === '__clear__') {
+        delete session.selections[field];
+      } else if (choices.some(channel => channel.id === selected)) {
+        session.selections[field] = selected;
+      }
+      const skipWasEnabled = session.selections.managePermissions === false;
+      if (skipWasEnabled && !hasCompleteExistingSelections(session)) session.selections.managePermissions = true;
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, session.page) });
+      if (skipWasEnabled && session.selections.managePermissions !== false) {
+        await interaction.followUp({
+          content: 'Permission edits were turned back on because one of the required existing selections was removed.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       return true;
     }
     if (interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu()) {
@@ -353,12 +387,42 @@ function setupPanelEmbed(session) {
     );
 }
 
+const SETUP_CHANNEL_PAGE_SIZE = 22;
+
+function setupPaginatedChannelMenu(token, session, field, placeholder) {
+  const choices = session?.channelChoices?.[field] ?? [];
+  const pageCount = Math.max(1, Math.ceil(choices.length / SETUP_CHANNEL_PAGE_SIZE));
+  const page = Math.min(Math.max(0, session?.pages?.[field] ?? 0), pageCount - 1);
+  const options = choices
+    .slice(page * SETUP_CHANNEL_PAGE_SIZE, (page + 1) * SETUP_CHANNEL_PAGE_SIZE)
+    .map(channel => ({
+      label: channel.name.slice(0, 100),
+      value: channel.id,
+      description: channel.parentName ? `In ${channel.parentName}`.slice(0, 100) : 'Server channel',
+    }));
+
+  if (choices.length) {
+    options.push({ label: 'Clear selection (create automatically)', value: '__clear__', description: 'Leave this selection empty' });
+    if (page > 0) options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous set of channels' });
+    if (page < pageCount - 1) options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more channels' });
+  } else {
+    options.push({ label: 'No matching channels available', value: '__none__', description: 'Create this resource automatically', disabled: true });
+  }
+
+  return new StringSelectMenuBuilder()
+    .setCustomId(`jsetup:${token}:${field}:${page}`)
+    .setPlaceholder(`${placeholder} (page ${page + 1}/${pageCount})`)
+    .setMinValues(choices.length ? 1 : 0)
+    .setMaxValues(1)
+    .addOptions(options);
+}
+
 function buildSetupPanel(token, page = 'roles') {
   const session = setupSessions.get(token);
   if (page === 'channels') {
     return [
-      new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:categoryId`).setPlaceholder('Select jail category').setChannelTypes(ChannelType.GuildCategory).setMinValues(0).setMaxValues(1)),
-      new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('Select default jail channel').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
+      new ActionRowBuilder().addComponents(setupPaginatedChannelMenu(token, session, 'categoryId', 'Select jail category')),
+      new ActionRowBuilder().addComponents(setupPaginatedChannelMenu(token, session, 'jailChannelId', 'Select default jail channel')),
       new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('Select jail evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
       new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:actionLogChannelId`).setPlaceholder('Select announcement channel (optional)').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
       new ActionRowBuilder().addComponents(
