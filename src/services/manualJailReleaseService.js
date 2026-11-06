@@ -9,7 +9,7 @@ export async function handleJailRoleRemoval(oldMember, newMember, client) {
   const jail = config?.jail ?? {};
   const activeCases = Array.isArray(jail.activeCases) ? jail.activeCases : [];
   const userCases = activeCases.filter(jailCase => jailCase?.userId === newMember.id);
-  if (!userCases.length) return false;
+  if (!userCases.length || !userCases.some(jailCase => !jailCase.sentencePaused)) return false;
 
   const configuredRoleIds = (jail.roles ?? []).map(item => item?.roleId).filter(Boolean);
   const trackedRoleIds = [...new Set([
@@ -21,12 +21,13 @@ export async function handleJailRoleRemoval(oldMember, newMember, client) {
   );
 
   if (!removedRoleIds.length) return false;
-  if (trackedRoleIds.some(roleId => newMember.roles.cache.has(roleId))) return false;
 
-  // /unjail and timed releases intentionally remove roles through the bot.
+  // Consume expected bot removals even when the member still has another jail role.
+  // This prevents stale guards from affecting a later manual removal.
   const unexpectedRemovals = removedRoleIds.filter(roleId =>
     !consumeExpectedJailRoleRemoval(newMember.guild.id, newMember.id, roleId)
   );
+  if (trackedRoleIds.some(roleId => newMember.roles.cache.has(roleId))) return false;
   if (!unexpectedRemovals.length) return false;
 
   const now = Date.now();
