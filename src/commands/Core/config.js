@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
+  ActionRowBuilder, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
@@ -25,6 +25,7 @@ function panelPayload(jail) {
       { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
       { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 1), inline: true },
       { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
+      { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? jail.policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None configured', inline: false },
     );
   const menus = SETTINGS.map(setting => new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -32,6 +33,7 @@ function panelPayload(jail) {
       .setPlaceholder(`Change ${setting.label}`)
       .addOptions([{ label: setting.label, value: setting.value, description: setting.description }]),
   ));
+  menus.push(new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId('jconfig:policeman_roles').setPlaceholder('Choose policeman roles (multiple allowed)').setMinValues(0).setMaxValues(25)));
   return { embeds: [embed], components: menus, flags: MessageFlags.Ephemeral };
 }
 
@@ -52,6 +54,14 @@ export default {
   },
 
   async handleComponent(interaction, client) {
+    if (interaction.customId === 'jconfig:policeman_roles' && interaction.isRoleSelectMenu()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current.jail ?? {}), policemanRoleIds: interaction.values };
+      await updateGuildConfig(client, interaction.guildId, { jail });
+      return interaction.reply({ content: interaction.values.length ? `Saved ${interaction.values.length} policeman role(s).` : 'Cleared policeman roles. Only administrators can use moderation commands until roles are configured.', flags: MessageFlags.Ephemeral });
+    }
     if (interaction.customId.startsWith('jconfig:') && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
         await interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
