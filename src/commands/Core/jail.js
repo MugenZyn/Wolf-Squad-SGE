@@ -6,7 +6,29 @@ import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 import { scheduleJailRelease } from '../../services/jailReleaseService.js';
 
-const DURATION_MS = { infinite: null, '1h': 3600000, '6h': 21600000, '12h': 43200000, '1d': 86400000, '3d': 259200000, '7d': 604800000 };
+function formatSentence(seconds) {
+  if (seconds === null || seconds === undefined) return 'Infinite';
+  let remaining = Math.max(0, Math.floor(seconds));
+  const units = [
+    ['year', 31536000], ['month', 2592000], ['day', 86400],
+    ['hour', 3600], ['minute', 60], ['second', 1],
+  ];
+  const parts = [];
+  for (const [name, size] of units) {
+    const amount = Math.floor(remaining / size);
+    if (amount > 0) {
+      parts.push(`${amount} ${name}${amount === 1 ? '' : 's'}`);
+      remaining %= size;
+    }
+    if (parts.length === 2) break;
+  }
+  return parts.join(', ') || '0 seconds';
+}
+
+function legacySentenceSeconds(value) {
+  const legacy = { '1h': 3600, '6h': 21600, '12h': 43200, '1d': 86400, '3d': 259200, '7d': 604800 };
+  return Object.prototype.hasOwnProperty.call(legacy, value) ? legacy[value] : null;
+}
 
 function clip(value, max = 1000) {
   const text = String(value ?? '');
@@ -18,6 +40,7 @@ export default {
     .setName('jail')
     .setDescription('Assign a registered jail role and forward evidence from this channel.')
     .addUserOption(o => o.setName('user').setDescription('Member to jail.').setRequired(true))
+    .addIntegerOption(o => o.setName('duration').setDescription('Sentence length in seconds. Leave blank to use the configured default (infinite by default).').setMinValue(1).setMaxValue(2147483647))
     .addStringOption(o => o.setName('message').setDescription('Optional extra text for the evidence post.').setMaxLength(1000)),
 
   async execute(interaction, guildConfig) {
@@ -82,13 +105,30 @@ export default {
       ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
       : [];
     const addon = interaction.options.getString('message')?.trim() || jail.defaultMessage?.trim() || '';
-    const duration = jail.defaultDuration ?? 'infinite';
-    const durationMs = Object.prototype.hasOwnProperty.call(DURATION_MS, duration) ? DURATION_MS[duration] : null;
-    const releaseAt = durationMs ? Date.now() + durationMs : null;
+    const requestedSeconds = interaction.options.getInteger('duration');
+    const configuredDefault = jail.defaultSentenceSeconds ?? legacySentenceSeconds(jail.defaultDuration);
+    const sentenceSeconds = requestedSeconds ?? configuredDefault;
+    const minimumSeconds = Math.max(1, Number(jail.minimumSentenceSeconds ?? 600));
+    if (requestedSeconds !== null && requestedSeconds < minimumSeconds) {
+      await target.roles.remove(selectedRole).catch(() => null);
+      return interaction.editReply({
+        content: `The minimum sentence is **${formatSentence(minimumSeconds)}** (${minimumSeconds} seconds). Your selected sentence was ${formatSentence(requestedSeconds)}.`,
+        components: [],
+      });
+    }
+    if (sentenceSeconds !== null && (!Number.isSafeInteger(sentenceSeconds) || sentenceSeconds < minimumSeconds)) {
+      await target.roles.remove(selectedRole).catch(() => null);
+      return interaction.editReply({
+        content: `The configured default sentence is below the minimum of ${minimumSeconds} seconds. An administrator must update /config.`,
+        components: [],
+      });
+    }
+    const durationLabel = formatSentence(sentenceSeconds);
+    const releaseAt = sentenceSeconds === null ? null : Date.now() + sentenceSeconds * 1000;
 
     await interaction.editReply({ content: `Jail role selected: <@&${selectedRole.id}>.`, components: [] });
     const response = await interaction.followUp({
-      content: `<@!${target.id}> has been assigned <@&${selectedRole.id}>. Duration: **${duration}**.`,
+      content: `<@!${target.id}> has been assigned <@&${selectedRole.id}>. Sentence: **${durationLabel}**.`,
       fetchReply: true,
       allowedMentions: { parse: [] },
     });
@@ -100,7 +140,7 @@ export default {
         { name: 'Jailed member', value: `<@!${target.id}> (${target.id})`, inline: true },
         { name: 'Jailed by', value: `<@!${interaction.user.id}>`, inline: true },
         { name: 'Jail role', value: `<@&${selectedRole.id}>`, inline: true },
-        { name: 'Duration', value: duration, inline: true },
+        { name: 'Sentence', value: sentenceSeconds === null ? 'Infinite' : `${durationLabel} (${sentenceSeconds.toLocaleString()} seconds)`, inline: true },
         { name: 'Original channel', value: `<#${interaction.channelId}> (${interaction.channelId})`, inline: true },
         { name: 'Time', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
       )
@@ -130,7 +170,7 @@ export default {
     }
 
     const activeCases = Array.isArray(jail.activeCases) ? jail.activeCases.filter(c => c.userId !== target.id) : [];
-    activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt });
+    activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt, sentenceSeconds });
     await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases } });
     if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: selectedRole.id, releaseAt });
     await interaction.followUp({ content: evidenceResult, flags: MessageFlags.Ephemeral });
