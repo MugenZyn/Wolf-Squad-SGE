@@ -5,6 +5,13 @@ import { logger } from '../utils/logger.js';
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
+    if (interaction.isButton() || interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu()) {
+      if (interaction.customId?.startsWith('jsetup:')) {
+        const setupCommand = client.commands.get('setup-jail');
+        if (setupCommand?.handleComponent) return setupCommand.handleComponent(interaction, client);
+      }
+      return;
+    }
     if (!interaction.isChatInputCommand()) return;
 
     const command = client.commands.get(interaction.commandName);
