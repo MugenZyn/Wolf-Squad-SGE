@@ -264,8 +264,8 @@ function jailChannelPickerComponents(roleId, picker) {
   return [
     new ActionRowBuilder().addComponents(picker.menu),
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`jconfig:channel_page:${roleId}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(picker.page <= 0),
-      new ButtonBuilder().setCustomId(`jconfig:channel_page:${roleId}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(picker.page >= picker.pageCount - 1),
+      new ButtonBuilder().setCustomId(`jconfig:channel_page:${roleId}:${picker.page}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(picker.page <= 0),
+      new ButtonBuilder().setCustomId(`jconfig:channel_page:${roleId}:${picker.page}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(picker.page >= picker.pageCount - 1),
     ),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary),
@@ -576,7 +576,7 @@ export default {
       ] });
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_page:')) {
-      const [, , roleId, control] = interaction.customId.split(':');
+      const [, , roleId, pageValue, control] = interaction.customId.split(':');
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = current?.jail ?? {};
@@ -584,7 +584,7 @@ export default {
       if (!registered) return interaction.editReply({ content: 'That role is no longer registered as a jail role.', embeds: [], components: [] });
       const channels = await getJailChannelOptions(interaction.guild, jail);
       if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
-      const currentPage = Number(interaction.message?.components?.[0]?.components?.[0]?.customId?.split(':').at(-1) ?? 0);
+      const currentPage = Number.parseInt(pageValue, 10) || 0;
       const pageCount = Math.max(1, Math.ceil(channels.length / CONFIG_CHANNEL_ROLE_PAGE_SIZE));
       const nextPage = Math.min(Math.max(0, currentPage + (control === 'prev' ? -1 : 1)), pageCount - 1);
       const picker = jailChannelMenu(roleId, nextPage, channels);
