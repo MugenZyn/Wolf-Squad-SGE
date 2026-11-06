@@ -15,7 +15,7 @@ export const GUILD_CONFIG_DEFAULTS = {
     jail: {
         defaultSentenceSeconds: null,
         minimumSentenceSeconds: 600,
-        evidenceMessageCount: 1,
+        evidenceMessageCount: 5,
         defaultMessage: '',
         roles: [],
         activeCases: [],
