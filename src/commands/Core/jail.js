@@ -72,14 +72,8 @@ async function findExistingEvidenceThread(forum, userId, jail) {
     if (thread?.parentId === forum.id && thread.isThread?.()) return thread;
   }
 
-  const collections = [];
-  const active = await forum.threads.fetchActive().catch(() => null);
-  if (active?.threads) collections.push(active.threads);
-  const archived = await forum.threads.fetchArchived({ type: 'public', limit: 100 }).catch(() => null);
-  if (archived?.threads) collections.push(archived.threads);
-
   const checked = new Set();
-  for (const threads of collections) {
+  const findInThreads = async threads => {
     for (const thread of threads.values()) {
       if (checked.has(thread.id)) continue;
       checked.add(thread.id);
@@ -87,6 +81,24 @@ async function findExistingEvidenceThread(forum, userId, jail) {
       const memberField = starter?.embeds?.[0]?.fields?.find(field => /jailed member/i.test(field.name));
       if (memberField?.value?.includes(userId)) return thread;
     }
+    return null;
+  };
+
+  const active = await forum.threads.fetchActive().catch(() => null);
+  if (active?.threads) {
+    const match = await findInThreads(active.threads);
+    if (match) return match;
+  }
+
+  let before;
+  while (true) {
+    const archived = await forum.threads.fetchArchived({ type: 'public', limit: 100, ...(before ? { before } : {}) }).catch(() => null);
+    if (!archived?.threads?.size) break;
+    const match = await findInThreads(archived.threads);
+    if (match) return match;
+    const oldestThread = archived.threads.last();
+    if (!archived.hasMore || !oldestThread || oldestThread.id === before) break;
+    before = oldestThread.id;
   }
   return null;
 }
