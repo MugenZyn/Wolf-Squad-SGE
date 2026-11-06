@@ -27,6 +27,8 @@ function panelPayload(jail) {
       { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
       { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 1), inline: true },
       { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
+      { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
+      { name: 'Lawyer role', value: jail.lawyerRoleId ? `<@&${jail.lawyerRoleId}>` : 'None configured', inline: true },
       { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? jail.policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None configured', inline: false },
     );
   const menus = SETTINGS.map(setting => new ActionRowBuilder().addComponents(
