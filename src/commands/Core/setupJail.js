@@ -125,17 +125,36 @@ export default {
       await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
     }
 
+    let logsChannel = null;
+    const existingLogsId = guildConfig?.jail?.logsChannelId;
+    if (existingLogsId) logsChannel = await guild.channels.fetch(existingLogsId).catch(() => null);
+    if (!logsChannel || logsChannel.type !== ChannelType.GuildText) {
+      logsChannel = await guild.channels.create({
+        name: 'jail-logs',
+        type: ChannelType.GuildText,
+        ...(category ? { parent: category.id } : {}),
+        reason: 'Create default jail command logs channel',
+        permissionOverwrites: [
+          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+          ...(guildConfig?.modRole ? [{ id: guildConfig.modRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }] : []),
+          ...(guildConfig?.adminRole ? [{ id: guildConfig.adminRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] }] : []),
+          { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+        ],
+      });
+    }
+
     const existingJail = guildConfig?.jail ?? {};
     const roles = Array.isArray(existingJail.roles) ? existingJail.roles.filter(x => x?.roleId !== jailRole.id) : [];
     roles.push({ roleId: jailRole.id, channelId: jailChannel.id });
     await updateGuildConfig(interaction.client, guild.id, {
-      jail: { ...existingJail, channelId: jailChannel.id, categoryId: category?.id ?? null, evidenceForumId: evidenceForum.id, lawyerRoleId, roles }
+      jail: { ...existingJail, channelId: jailChannel.id, categoryId: category?.id ?? null, evidenceForumId: evidenceForum.id, logsChannelId: logsChannel.id, lawyerRoleId, roles }
     });
 
     return interaction.editReply([
       `Jail channel configured: ${jailChannel} (${jailChannel.id})`,
       category ? `Jail category: ${category} (${category.id})` : 'The existing jail channel has no category; no category was created.',
       `Evidence forum: ${evidenceForum} (${evidenceForum.id})`,
+      `Logs channel: ${logsChannel} (${logsChannel.id})`,
       `Jail role: <@&${jailRole.id}>`,
       lawyerRole ? `Lawyer role can view the entire jail category and evidence forum: <@&${lawyerRole.id}>` : 'No lawyer role configured.',
       'Setup applies permissions once. Later manual staff changes are not automatically synchronized or repaired.'
