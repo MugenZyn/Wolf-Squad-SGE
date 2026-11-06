@@ -130,14 +130,14 @@ export default {
           `**Released by:** <@${interaction.user.id}>`,
           roleLine,
           `**Released at:** <t:${Math.floor(releasedAt / 1000)}:F>`,
-        ].join('\\n'),
+        ].join('\n'),
         allowedMentions: { parse: [] },
       }).then(() => true).catch(() => false);
       if (posted) evidenceLogCount++;
       if (posted && roleNameChunks.length > 1) {
         for (let index = 0; index < roleNameChunks.length; index++) {
           await thread.send({
-            content: `**Jail roles removed (${index + 1}/${roleNameChunks.length}):**\\n${roleNameChunks[index]}`,
+            content: `**Jail roles removed (${index + 1}/${roleNameChunks.length}):**\n${roleNameChunks[index]}`,
             allowedMentions: { parse: [] },
           }).catch(() => null);
         }
@@ -187,7 +187,7 @@ export default {
       failed.length ? `Could not remove ${failed.length} jail role(s). Check the bot's role hierarchy and permissions.` : '',
     ].filter(Boolean);
     await interaction.reply({
-      content: lines.join('\\n'),
+      content: lines.join('\n'),
       flags: MessageFlags.Ephemeral,
       allowedMentions: { parse: [] },
     });
@@ -195,7 +195,7 @@ export default {
     const removedNameChunks = chunkListItems(removedNames);
     for (let index = 0; index < removedNameChunks.length; index++) {
       await interaction.followUp({
-        content: `Removed roles (${index + 1}/${removedNameChunks.length}):\\n${removedNameChunks[index]}`,
+        content: `Removed roles (${index + 1}/${removedNameChunks.length}):\n${removedNameChunks[index]}`,
         flags: MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
       });
@@ -203,7 +203,7 @@ export default {
     const failedNameChunks = chunkListItems(failed);
     for (let index = 0; index < failedNameChunks.length; index++) {
       await interaction.followUp({
-        content: `Roles not removed (${index + 1}/${failedNameChunks.length}):\\n${failedNameChunks[index]}`,
+        content: `Roles not removed (${index + 1}/${failedNameChunks.length}):\n${failedNameChunks[index]}`,
         flags: MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
       });
