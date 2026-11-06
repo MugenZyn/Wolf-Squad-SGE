@@ -19,49 +19,85 @@ function formatDuration(value) {
   return value == null ? 'Infinite' : `${Number(value).toLocaleString()} seconds`;
 }
 
-function panelPayload(jail) {
-  const embed = new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setTitle('Jail configuration')
-    .setDescription('Select a setting below to view or change it.')
-    .addFields(
-      { name: 'Default sentence', value: formatDuration(jail.defaultSentenceSeconds), inline: true },
-      { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
-      { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 5), inline: true },
-      { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
-      { name: 'Action announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
-      { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
-      { name: 'Jail role → channel', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => ` <@&${item.roleId}> → ${(item.channelId || jail.channelId) ? `<#${item.channelId || jail.channelId}>` : 'No channel linked'}`).join('\n').slice(0, 1024) : 'None configured', inline: false },
-      { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
-      { name: 'Jail category', value: jail.categoryId ? `<#${jail.categoryId}>` : 'None configured', inline: true },
-      { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
-      { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
-      { name: 'Lawyer role', value: jail.lawyerRoleId ? `<@&${jail.lawyerRoleId}>` : 'None configured', inline: true },
-      { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? jail.policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None configured', inline: false },
-    );
-  const menus = SETTINGS.filter(setting => !['jail_announcement', 'unjail_announcement'].includes(setting.value)).map(setting => new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId(`jconfig:${setting.value}`)
-      .setPlaceholder(`Change ${setting.label}`)
-      .addOptions([{ label: setting.label, value: setting.value, description: setting.description }]),
-  ));
-  menus.push(new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId('jconfig:role_action')
-      .setPlaceholder('Manage configured roles')
+function panelPayload(jail, page = 'settings') {
+  const embed = new EmbedBuilder().setColor(0x5865F2).setTitle('Jail configuration');
+  const nav = new ActionRowBuilder().addComponents(
+    ...[
+      ['settings', 'Settings'],
+      ['roles', 'Roles'],
+      ['channels', 'Channels'],
+      ['messages', 'Messages'],
+    ].map(([value, label]) => new ButtonBuilder()
+      .setCustomId(`jconfig:page:${value}`)
+      .setLabel(label)
+      .setStyle(page === value ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setDisabled(page === value))
+  );
+  let controls = [];
+  if (page === 'settings') {
+    embed.setDescription('Configure jail durations and evidence defaults.')
+      .addFields(
+        { name: 'Default sentence', value: formatDuration(jail.defaultSentenceSeconds), inline: true },
+        { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
+        { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 5), inline: true },
+        { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
+      );
+    controls = SETTINGS.filter(setting => ['default_seconds', 'minimum_seconds', 'evidence_count', 'default_message'].includes(setting.value))
+      .map(setting => new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+        .setCustomId(`jconfig:${setting.value}`).setPlaceholder(`Change ${setting.label}`)
+        .addOptions([{ label: setting.label, value: setting.value, description: setting.description }])));
+  } else if (page === 'roles') {
+    embed.setDescription('Manage which roles are used by the jail system.')
+      .addFields(
+        { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
+        { name: 'Lawyer role', value: jail.lawyerRoleId ? `<@&${jail.lawyerRoleId}>` : 'None configured', inline: true },
+        { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? jail.policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None configured', inline: true },
+      );
+    const roleMenu = new StringSelectMenuBuilder().setCustomId('jconfig:role_action').setPlaceholder('Choose a role action')
       .addOptions(
         { label: 'Add jail roles', value: 'add_jail_roles', description: 'Register existing server roles as jail roles' },
-        { label: 'Set lawyer role', value: 'set_lawyer', description: 'Choose an existing server role as the lawyer role' },
+        { label: 'Set lawyer role', value: 'set_lawyer', description: 'Choose the lawyer role' },
         { label: 'Choose policeman roles', value: 'set_policeman', description: 'Select multiple roles; choose none to clear' },
-        { label: 'Set a jail role channel', value: 'set_jail_channel', description: 'Choose which jail channel a specific jail role uses' },
-        { label: 'Set jail/unjail announcement channel', value: 'set_action_log_channel', description: 'Choose where jail and unjail announcements are posted' },
-        { label: 'Message configuration', value: 'message_config', description: 'Edit jail and unjail announcement messages' },
-        { label: 'Remove roles from jail configuration', value: 'remove_roles', description: 'Unassign jail, lawyer, or policeman roles' },
-      ),
-  ));
-  return { embeds: [embed], components: menus, flags: MessageFlags.Ephemeral };
+        { label: 'Remove roles', value: 'remove_roles', description: 'Unassign or delete configured roles' },
+      );
+    controls = [new ActionRowBuilder().addComponents(roleMenu)];
+  } else if (page === 'channels') {
+    embed.setDescription('All channel and category settings are managed here, separately from role settings.')
+      .addFields(
+        { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
+        { name: 'Jail category', value: jail.categoryId ? `<#${jail.categoryId}>` : 'None configured', inline: true },
+        { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
+        { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
+        { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
+        { name: 'Role-specific jail channels', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}> → ${item.channelId ? `<#${item.channelId}>` : 'Default channel'}`).join('\\n').slice(0, 1024) : 'No jail roles configured', inline: false },
+      );
+    const channelMenu = new StringSelectMenuBuilder().setCustomId('jconfig:channel_action').setPlaceholder('Choose a channel setting')
+      .addOptions(
+        { label: 'Default jail channel', value: 'default_jail', description: 'Choose the default channel for jailed members' },
+        { label: 'Jail category', value: 'category', description: 'Choose the category for jail channels' },
+        { label: 'Evidence forum', value: 'evidence_forum', description: 'Choose where jail evidence is stored' },
+        { label: 'Logs channel', value: 'logs', description: 'Choose where moderation logs are sent' },
+        { label: 'Announcement channel', value: 'announcement', description: 'Choose where jail and unjail announcements are posted' },
+        { label: 'Role-specific jail channel', value: 'role_channel', description: 'Assign a channel to a specific jail role' },
+      );
+    controls = [new ActionRowBuilder().addComponents(channelMenu)];
+  } else {
+    embed.setDescription('Customize the messages sent when members are jailed or released.')
+      .addFields(
+        { name: 'Jail announcement', value: (jail.jailAnnouncement || '{{user}} HAS BEEN JAILED').slice(0, 1000), inline: false },
+        { name: 'Unjail announcement', value: (jail.unjailAnnouncement || '{{user}} HAS BEEN UNJAILED').slice(0, 1000), inline: false },
+        { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'Not configured', inline: true },
+        { name: 'Placeholders', value: '`{{user}}` `{{server}}` `{{moderator}}` `{{role}}` `{{reason}}` `{{duration}}` `{{roles}}`', inline: false },
+      );
+    const messageMenu = new StringSelectMenuBuilder().setCustomId('jconfig:message_choice').setPlaceholder('Choose a message to edit')
+      .addOptions(
+        { label: 'Jail message', value: 'jail_announcement', description: 'Customize the message when a member is jailed' },
+        { label: 'Unjail message', value: 'unjail_announcement', description: 'Customize the message when a member is released' },
+      );
+    controls = [new ActionRowBuilder().addComponents(messageMenu)];
+  }
+  return { content: '', embeds: [embed], components: [...controls, nav], flags: MessageFlags.Ephemeral };
 }
-
 
 async function logConfigSave(interaction, jail, title, details) {
   const logsChannelId = jail?.logsChannelId;
@@ -134,7 +170,7 @@ export default {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
     }
-    return interaction.reply(panelPayload(guildConfig?.jail ?? {}));
+    return interaction.reply(panelPayload(guildConfig?.jail ?? {}, 'settings'));
   },
 
   async handleComponent(interaction, client) {
