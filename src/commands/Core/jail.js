@@ -268,7 +268,7 @@ export default {
     const announcementChannelIds = [...new Set([roleChannelId, jail.actionLogChannelId].filter(Boolean))];
     for (const channelId of announcementChannelIds) {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
-      if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
+      if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
     }
     await interaction.followUp({ content: evidenceResult, flags: MessageFlags.Ephemeral });
   },
