@@ -27,14 +27,9 @@ export async function readGuildConfig(client, guildId, context = {}) {
             return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
         }
 
-        if (typeof client.db.isAvailable === 'function' && !client.db.isAvailable()) {
-            logger.warn(`PostgreSQL unavailable for readGuildConfig in guild ${guildId}`, {
-                traceId: context.traceId,
-                guildId,
-            });
-            return normalizeGuildConfig({}, GUILD_CONFIG_DEFAULTS);
-        }
-
+        // Read through the database wrapper even in degraded mode. The wrapper
+        // transparently uses MemoryStorage when PostgreSQL is unavailable.
+        // Returning defaults here would hide config written moments earlier by /setup-jail.
         const rawConfig = await client.db.get(getGuildConfigKey(guildId), null);
 
         if (rawConfig === null) {
