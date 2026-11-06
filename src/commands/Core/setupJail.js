@@ -28,6 +28,7 @@ export default {
       categoryId: existingJail.categoryId ?? null,
       jailChannelId: existingJail.channelId ?? null,
       evidenceForumId: existingJail.evidenceForumId ?? null,
+      actionLogChannelId: existingJail.actionLogChannelId ?? null,
     } });
     const timer = setTimeout(() => setupSessions.delete(token), 15 * 60 * 1000);
     timer.unref?.();
@@ -101,6 +102,8 @@ export default {
       } else if (field === 'evidenceForumId' && interaction.isChannelSelectMenu()) {
         if (interaction.values[0]) session.selections.evidenceForumId = interaction.values[0];
         else delete session.selections.evidenceForumId;
+      } else if (field === 'actionLogChannelId' && interaction.isChannelSelectMenu()) {
+        session.selections.actionLogChannelId = interaction.values[0] || null;
       }
       const skipWasEnabled = session.selections.managePermissions === false;
       if (skipWasEnabled && !hasCompleteExistingSelections(session)) session.selections.managePermissions = true;
@@ -155,9 +158,12 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     const requestedChannelName = null;
     const categoryName = null;
     const forumId = selections.evidenceForumId || existingJail.evidenceForumId || null;
+    const announcementChannelId = Object.hasOwn(selections, 'actionLogChannelId')
+      ? selections.actionLogChannelId
+      : (existingJail.actionLogChannelId ?? null);
     const forumName = 'jail-evidence';
 
-    if ((lawyerRoleId && !ID_PATTERN.test(lawyerRoleId)) || (categoryId && !ID_PATTERN.test(categoryId)) || (existingChannelId && !ID_PATTERN.test(existingChannelId)) || (forumId && !ID_PATTERN.test(forumId))) return interaction.editReply('One of the supplied IDs is invalid.');
+    if ((lawyerRoleId && !ID_PATTERN.test(lawyerRoleId)) || (categoryId && !ID_PATTERN.test(categoryId)) || (existingChannelId && !ID_PATTERN.test(existingChannelId)) || (forumId && !ID_PATTERN.test(forumId)) || (announcementChannelId && !ID_PATTERN.test(announcementChannelId))) return interaction.editReply('One of the supplied IDs is invalid.');
 
     const botMember = guild.members.me ?? await guild.members.fetchMe();
     if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Roles permission to create or configure the jail roles.');
@@ -235,6 +241,11 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       if (lawyerRole) await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
     }
 
+    let announcementChannel = announcementChannelId ? await guild.channels.fetch(announcementChannelId).catch(() => null) : null;
+    if (announcementChannelId && announcementChannel?.type !== ChannelType.GuildText) {
+      return interaction.editReply('announcement_channel_id must identify an existing text channel.');
+    }
+
     let evidenceForum = forumId ? await guild.channels.fetch(forumId).catch(() => null) : null;
     if (forumId && evidenceForum?.type !== ChannelType.GuildForum) return interaction.editReply('evidence_forum_id must identify an existing forum channel.');
     if (!evidenceForum) {
@@ -297,7 +308,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       else roles.push(entry);
     }
     await updateGuildConfig(interaction.client, guild.id, {
-      jail: { ...existingJail, channelId: jailChannel.id, categoryId: category?.id ?? null, evidenceForumId: evidenceForum.id, logsChannelId: logsChannel.id, lawyerRoleId, policemanRoleIds: selections.policemanRoleIds ?? existingJail.policemanRoleIds ?? [], roles }
+      jail: { ...existingJail, channelId: jailChannel.id, categoryId: category?.id ?? null, evidenceForumId: evidenceForum.id, logsChannelId: logsChannel.id, actionLogChannelId: announcementChannel?.id ?? null, lawyerRoleId, policemanRoleIds: selections.policemanRoleIds ?? existingJail.policemanRoleIds ?? [], roles }
     });
     await logsChannel.send({
       embeds: [{
@@ -327,7 +338,7 @@ function setupPanelEmbed(session) {
     .setDescription(session.page === 'channels'
       ? (session.selections.managePermissions === false
         ? 'Choose your existing jail channels. Permission edits are disabled: existing channel permissions and channel placement will be left unchanged. Make sure the bot already has access.'
-        : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. Skip permission edits is available only after explicitly selecting an existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.')
+        : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. The announcement channel is optional. Skip permission edits is available only after explicitly selecting an existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.')
       : 'Choose the roles used by the jail system. Jail and lawyer roles are created automatically if left empty.')
     .addFields(
       { name: 'Jail roles', value: jailRoleIds.length ? jailRoleIds.map(id => `<@&${id}>`).join(', ') : 'Automatic (SGE - JAIL)', inline: false },
@@ -336,6 +347,7 @@ function setupPanelEmbed(session) {
       { name: 'Category', value: s.categoryId ? `<#${s.categoryId}>` : 'Create automatically (JAIL)', inline: true },
       { name: 'Default jail channel', value: s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create automatically (jail)', inline: true },
       { name: 'Evidence forum', value: s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create automatically (jail-evidence)', inline: true },
+      { name: 'Announcement channel', value: s.actionLogChannelId ? `<#${s.actionLogChannelId}>` : 'Optional (not set)', inline: true },
       ...(session.page === 'channels' ? [{ name: 'Channel permissions', value: s.managePermissions === false ? 'Leave existing permissions unchanged' : 'Bot configures jail permissions', inline: false }] : []),
       { name: 'Current page', value: session.page === 'channels' ? 'Channels' : 'Roles', inline: true },
     );
@@ -348,6 +360,7 @@ function buildSetupPanel(token, page = 'roles') {
       new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:categoryId`).setPlaceholder('Select jail category').setChannelTypes(ChannelType.GuildCategory).setMinValues(0).setMaxValues(1)),
       new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('Select default jail channel').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
       new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('Select jail evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
+      new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:actionLogChannelId`).setPlaceholder('Select announcement channel (optional)').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`jsetup:${token}:back`).setLabel('Back').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
