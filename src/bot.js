@@ -30,7 +30,7 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      startupLog(`Starting ${this.user?.username || 'bot'} jail bot...`);
+      startupLog('Starting bot...');
       startupLog('Initializing database...');
       const dbInstance = await initializeDatabase();
       this.db = dbInstance.db;
