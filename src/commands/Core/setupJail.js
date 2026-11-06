@@ -33,7 +33,6 @@ export default {
     const reason = `Jail setup requested by ${user.tag} (${user.id})`;
 
     if ((lawyerRoleId && !ID_PATTERN.test(lawyerRoleId)) || (categoryId && !ID_PATTERN.test(categoryId)) || (existingChannelId && !ID_PATTERN.test(existingChannelId)) || (forumId && !ID_PATTERN.test(forumId))) return interaction.editReply('One of the supplied IDs is invalid.');
-    if (!existingChannelId && !requestedChannelName) return interaction.editReply('Provide channel_name to create a jail channel, or jail_channel_id to use an existing one.');
 
     if (!jailRole || jailRole.guild.id !== guild.id || jailRole.id === guild.id || jailRole.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply('The jail role must be a server role, cannot be @everyone, and cannot have Administrator permission.');
     const lawyerRole = lawyerRoleId ? await guild.roles.fetch(lawyerRoleId).catch(() => null) : null;
@@ -79,7 +78,7 @@ export default {
       : [];
     if (!jailChannel) {
       jailChannel = await guild.channels.create({
-        name: requestedChannelName.toLowerCase().replace(/\s+/g, '-'),
+        name: (requestedChannelName || 'jail').toLowerCase().replace(/\s+/g, '-'),
         type: ChannelType.GuildText,
         ...(category ? { parent: category.id } : {}),
         reason,
