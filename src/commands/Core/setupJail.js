@@ -448,7 +448,7 @@ function summarizeSetupRoleIds(ids, automaticLabel = 'None') {
   if (!uniqueIds.length) return automaticLabel;
   const preview = uniqueIds.slice(0, 10).map(id => `<@&${id}>`).join(', ');
   const remaining = uniqueIds.length - Math.min(uniqueIds.length, 10);
-  return `${uniqueIds.length} selected\\n${preview}${remaining ? `\\n…and ${remaining} more. Use the paginated role selector to browse all.` : ''}`;
+  return `${uniqueIds.length} selected\n${preview}${remaining ? `\n…and ${remaining} more. Use the paginated role selector to browse all.` : ''}`;
 }
 
 
