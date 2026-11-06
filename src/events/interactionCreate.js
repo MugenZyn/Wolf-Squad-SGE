@@ -5,7 +5,7 @@ import { logger } from '../utils/logger.js';
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
-    if (interaction.isButton() || interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu() || interaction.isStringSelectMenu() || interaction.isModalSubmit()) {
+    if (interaction.isButton() || interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu() || interaction.isModalSubmit()) {
       if (interaction.customId?.startsWith('jsetup:')) {
         const setupCommand = client.commands.get('setup-jail');
         if (setupCommand?.handleComponent) return setupCommand.handleComponent(interaction, client);
