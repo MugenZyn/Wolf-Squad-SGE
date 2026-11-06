@@ -44,7 +44,7 @@ export default {
       return interaction.reply({ content: `No recorded jail history found for <@${user.id}>.`, flags: MessageFlags.Ephemeral });
     }
 
-    const pageSize = 10;
+    const pageSize = 6;
     const pageCount = Math.max(1, Math.ceil(history.length / pageSize));
     const token = interaction.id;
     const buildPayload = page => {
