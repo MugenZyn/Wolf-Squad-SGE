@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, MessageReferenceType, PermissionFlagsBits,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, PermissionFlagsBits,
   SlashCommandBuilder, StringSelectMenuBuilder,
 } from 'discord.js';
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
@@ -174,14 +174,7 @@ export default {
       const forwardErrors = [];
       for (const message of evidence) {
         try {
-          await evidenceThread.send({
-            messageReference: {
-              type: MessageReferenceType.Forward,
-              messageId: message.id,
-              channelId: message.channelId,
-              guildId: interaction.guild.id,
-            },
-          });
+          await message.forward(evidenceThread);
           forwardedCount++;
         } catch (error) {
           forwardErrors.push(`${message.id}: ${clip(error.message, 160)}`);
