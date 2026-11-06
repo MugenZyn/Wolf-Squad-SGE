@@ -368,7 +368,7 @@ export default {
     if (interaction.isRoleSelectMenu() && roleSelectionActions.some(action => interaction.customId === `jconfig:${action === 'set_lawyer' ? 'lawyer_role' : action === 'set_policeman' ? 'policeman_roles' : action}`)) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const action = interaction.customId === 'jconfig:add_jail_roles' ? 'add_jail_roles' : interaction.customId === 'jconfig:lawyer_role' ? 'set_lawyer' : 'set_policeman';
-      const selectedIds = selectedRoleIds ?? [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
+      const selectedIds = [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
       pendingRoleSelections.set(`${pendingSelectionKey}:${action}`, selectedIds);
       const selectedText = selectedIds.length ? selectedIds.map(id => `<@&${id}>`).join(', ') : 'None selected';
       return interaction.update({
@@ -405,7 +405,7 @@ export default {
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = { ...(current?.jail ?? {}) };
       const existing = Array.isArray(jail.roles) ? [...jail.roles] : [];
-      const selectedIds = [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
+      const selectedIds = selectedRoleIds ?? [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
       if (!selectedIds.length) return interaction.editReply({ content: 'No jail roles selected. Nothing was changed.', embeds: [], components: [] });
       const combined = new Set([...existing.map(item => item?.roleId).filter(Boolean), ...selectedIds]);
       if (combined.size > 25) return interaction.editReply({ content: 'You can configure up to 25 jail roles. Remove some before adding more.', embeds: [], components: [] });
