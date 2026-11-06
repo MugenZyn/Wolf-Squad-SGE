@@ -96,7 +96,7 @@ export default {
     if (!forum || forum.type !== 15) return interaction.reply({ content: 'The configured jail evidence forum is missing or is not a forum. Run /setup-jail again with a valid forum.', flags: MessageFlags.Ephemeral });
 
     const targetUser = interaction.options.getUser('user', true);
-    const target = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
+    let target = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
     if (!target) return interaction.reply({ content: 'That member is not in this server.', flags: MessageFlags.Ephemeral });
     if (target.id === interaction.user.id || target.id === interaction.client.user.id || target.id === interaction.guild.ownerId) {
       return interaction.reply({ content: 'You cannot jail yourself, the bot, or the server owner.', flags: MessageFlags.Ephemeral });
@@ -105,10 +105,18 @@ export default {
       return interaction.reply({ content: 'Your highest role must be above the member you are jailing.', flags: MessageFlags.Ephemeral });
     }
 
+    const assignableRoles = roles.filter(role => !target.roles.cache.has(role.id));
+    if (!assignableRoles.length) {
+      return interaction.reply({
+        content: 'That member already has every registered jail role. No role was added.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     const menu = new StringSelectMenuBuilder()
       .setCustomId('choose_jail_role')
       .setPlaceholder('Choose a registered jail role')
-      .addOptions(roles.map(role => ({ label: clip(role.name, 100), value: role.id, description: `Jail role: ${clip(role.name, 80)}` })));
+      .addOptions(assignableRoles.map(role => ({ label: clip(role.name, 100), value: role.id, description: `Jail role: ${clip(role.name, 80)}` })));
     await interaction.reply({
       content: `Choose the jail role for **${clip(target.user.tag, 80)}**:`,
       components: [new ActionRowBuilder().addComponents(menu)],
@@ -128,8 +136,18 @@ export default {
       return interaction.editReply({ content: 'Jail role selection timed out. Run /jail again.', components: [] });
     }
 
-    const selectedRole = roles.find(role => role.id === selectedRoleId);
-    if (!selectedRole) return interaction.editReply({ content: 'That jail role is no longer registered. Run /jail again.', components: [] });
+    const selectedRole = assignableRoles.find(role => role.id === selectedRoleId);
+    if (!selectedRole) return interaction.editReply({ content: 'That jail role is no longer available. Run /jail again.', components: [] });
+
+    // Refresh the member in case another moderator assigned this role while the menu was open.
+    target = await interaction.guild.members.fetch(target.id).catch(() => null);
+    if (!target) return interaction.editReply({ content: 'That member is no longer in this server.', components: [] });
+    if (target.roles.cache.has(selectedRole.id)) {
+      return interaction.editReply({
+        content: 'That member already has this jail role. No changes were made.',
+        components: [],
+      });
+    }
     const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
     if (botMember.roles.highest.comparePositionTo(selectedRole) <= 0) return interaction.editReply({ content: 'My highest role must be above the selected jail role.', components: [] });
 
