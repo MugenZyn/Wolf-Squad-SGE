@@ -144,17 +144,18 @@ function jailChannelMenu(customId, placeholder, channels) {
 }
 
 async function saveJailRoleChannel(interaction, client, roleId, channelId) {
+  if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
   const { getGuildConfig } = await import('../../services/config/guildConfig.js');
   const current = await getGuildConfig(client, interaction.guildId);
   const jail = { ...(current?.jail ?? {}) };
   const roles = Array.isArray(jail.roles) ? [...jail.roles] : [];
   const index = roles.findIndex(item => item?.roleId === roleId);
-  if (index < 0) return interaction.update({ content: 'That role is no longer registered as a jail role. Nothing was changed.', embeds: [], components: [] });
+  if (index < 0) return interaction.editReply({ content: 'That role is no longer registered as a jail role. Nothing was changed.', embeds: [], components: [] });
   const previousChannelId = roles[index]?.channelId ?? null;
   if (channelId) {
     const selectedChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
     const allowedJailChannels = await getJailChannelOptions(interaction.guild, jail);
-    if (!selectedChannel || !allowedJailChannels.some(channel => channel.id === channelId)) return interaction.update({ content: 'Choose one of the available jail channels from the configured jail category.', embeds: [], components: [] });
+    if (!selectedChannel || !allowedJailChannels.some(channel => channel.id === channelId)) return interaction.editReply({ content: 'Choose one of the available jail channels from the configured jail category.', embeds: [], components: [] });
     roles[index] = { ...roles[index], roleId, channelId };
   } else {
     roles[index] = { ...roles[index], roleId, channelId: null };
@@ -177,7 +178,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
   }
   await updateGuildConfig(client, interaction.guildId, { jail });
   await logConfigSave(interaction, jail, 'Jail role channel', `**Role:** <@&${roleId}>\n**Channel:** ${channelId ? `<#${channelId}>` : 'Default jail channel'}`);
-  return interaction.update({
+  return interaction.editReply({
     content: channelId
       ? `Saved: <@&${roleId}> now uses <#${channelId}>. Other configured jail roles are denied access to that role-specific channel.`
       : `Saved: <@&${roleId}> now falls back to the default jail channel ${defaultChannelId ? `<#${defaultChannelId}>` : '(not configured yet)'}.`,
@@ -214,15 +215,16 @@ export default {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const action = interaction.values[0];
       if (action === 'role_channel') {
+        await interaction.deferUpdate();
         const { getGuildConfig } = await import('../../services/config/guildConfig.js');
         const current = await getGuildConfig(client, interaction.guildId);
         const roles = (current?.jail?.roles ?? []).filter(item => item?.roleId);
-        if (!roles.length) return interaction.update({ content: 'No jail roles are configured yet. Add jail roles on the Roles page first.', embeds: [], components: [] });
+        if (!roles.length) return interaction.editReply({ content: 'No jail roles are configured yet. Add jail roles on the Roles page first.', embeds: [], components: [] });
         const ids = [...new Set(roles.map(item => item.roleId))];
         const guildRoles = (await Promise.all(ids.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
         const menu = new StringSelectMenuBuilder().setCustomId('jconfig:channel_role').setPlaceholder('Choose a configured jail role').setMinValues(1).setMaxValues(1)
           .addOptions(guildRoles.slice(0, 25).map(role => ({ label: role.name.slice(0, 100), value: role.id, description: 'Configured jail role' })));
-        return interaction.update({ content: 'Choose the jail role whose channel you want to change.', embeds: [], components: [new ActionRowBuilder().addComponents(menu)] });
+        return interaction.editReply({ content: 'Choose the jail role whose channel you want to change.', embeds: [], components: [new ActionRowBuilder().addComponents(menu)] });
       }
       const settings = {
         default_jail: { key: 'channelId', label: 'Default jail channel', type: ChannelType.GuildText },
@@ -289,15 +291,16 @@ export default {
     }
     if (interaction.customId === 'jconfig:channel_role' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
-      const roleId = (selectedRoleIds ?? interaction.values)[0];
+      const roleId = interaction.values[0];
+      await interaction.deferUpdate();
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
-      if (!entry) return interaction.update({ content: 'That role is not currently registered as a jail role. Run /setup-jail first.', embeds: [], components: [] });
+      if (!entry) return interaction.editReply({ content: 'That role is not currently registered as a jail role. Run /setup-jail first.', embeds: [], components: [] });
       const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
-      if (!channels.length) return interaction.update({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
+      if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
       const channelMenu = jailChannelMenu(`jconfig:channel:${roleId}`, 'Choose a jail channel for this role', channels);
-      return interaction.update({
+      return interaction.editReply({
         content: `Choose a jail channel for <@&${roleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`,
         embeds: [],
         components: [
