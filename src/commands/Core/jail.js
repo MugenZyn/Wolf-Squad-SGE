@@ -41,34 +41,82 @@ function getFilteredJailRoles(roles, searchQuery = '') {
   return roles.filter(role => !query || role.name.toLowerCase().includes(query));
 }
 
-function buildJailRoleMenu(token, roles, page, searchQuery = '') {
+function buildJailRoleMenu(token, roles, page, searchQuery = '', selectedRoleIds = []) {
   const filtered = getFilteredJailRoles(roles, searchQuery);
   const pageCount = Math.max(1, Math.ceil(filtered.length / JAIL_ROLE_PAGE_SIZE));
   const safePage = Math.min(Math.max(0, Number(page) || 0), pageCount - 1);
+  const selected = new Set(selectedRoleIds);
   const options = filtered.slice(safePage * JAIL_ROLE_PAGE_SIZE, (safePage + 1) * JAIL_ROLE_PAGE_SIZE)
-    .map(role => ({ label: clip(role.name, 100), value: role.id, description: `Jail role: ${clip(role.name, 80)}` }));
+    .map(role => ({
+      label: clip(role.name, 100),
+      value: role.id,
+      description: `Jail role: ${clip(role.name, 80)}`,
+      default: selected.has(role.id),
+    }));
   if (!options.length) options.push({ label: 'No matching jail roles found', value: '__no_roles__', description: 'Change or clear the search', disabled: true });
   return {
     menu: new StringSelectMenuBuilder().setCustomId(`choose_jail_role:${token}:${safePage}`)
-      .setPlaceholder(`Choose a jail role (page ${safePage + 1}/${pageCount})`)
-      .setMinValues(0).setMaxValues(1).addOptions(options),
+      .setPlaceholder(`Choose jail roles (page ${safePage + 1}/${pageCount})`)
+      .setMinValues(0).setMaxValues(Math.max(1, options.length)).addOptions(options),
     page: safePage, pageCount, filtered,
   };
 }
 
-function buildJailRolePager(token, page, pageCount, searchQuery = '') {
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
-    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:search`).setLabel('Search roles').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:clear_search`).setLabel('Clear search').setStyle(ButtonStyle.Secondary).setDisabled(!searchQuery),
-    new ButtonBuilder().setCustomId(`jail_role_nav:${token}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page >= pageCount - 1),
-  );
+function updateJailRoleSelection(roles, page, values, selectedRoleIds, searchQuery = '') {
+  const filtered = getFilteredJailRoles(roles, searchQuery);
+  const pageRoleIds = new Set(filtered
+    .slice(page * JAIL_ROLE_PAGE_SIZE, (page + 1) * JAIL_ROLE_PAGE_SIZE)
+    .map(role => role.id));
+  return [...new Set([
+    ...selectedRoleIds.filter(id => !pageRoleIds.has(id)),
+    ...values.filter(id => pageRoleIds.has(id)),
+  ])];
+}
+
+function buildJailRolePager(token, page, pageCount, searchQuery = '', selectedCount = 0) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`jail_role_nav:${token}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page <= 0),
+      new ButtonBuilder().setCustomId(`jail_role_nav:${token}:search`).setLabel('Search roles').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`jail_role_nav:${token}:clear_search`).setLabel('Clear search').setStyle(ButtonStyle.Secondary).setDisabled(!searchQuery),
+      new ButtonBuilder().setCustomId(`jail_role_nav:${token}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page >= pageCount - 1),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`jail_role_nav:${token}:clear_selection`).setLabel('Clear selection').setStyle(ButtonStyle.Secondary).setDisabled(selectedCount === 0),
+      new ButtonBuilder().setCustomId(`jail_role_nav:${token}:apply`).setLabel(`Apply selected roles (${selectedCount})`).setStyle(ButtonStyle.Success).setDisabled(selectedCount === 0),
+    ),
+  ];
 }
 
 function clip(value, max = 1000) {
   const text = String(value ?? '');
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
+
+function chunkTextItems(items, maxLength = 950, separator = ', ') {
+  const chunks = [];
+  let current = '';
+  for (const item of items) {
+    const next = current ? `${current}${separator}${item}` : String(item);
+    if (current && next.length > maxLength) {
+      chunks.push(current);
+      current = String(item);
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+function jailRoleEvidenceFields(roles) {
+  const chunks = chunkTextItems(roles.map(role => `<@&${role.id}>`));
+  return chunks.map((value, index) => ({
+    name: chunks.length > 1 ? `Jail roles (${index + 1}/${chunks.length})` : 'Jail roles',
+    value,
+    inline: true,
+  }));
+
 
 async function findExistingEvidenceThread(forum, userId, jail) {
   const knownIds = [
@@ -159,19 +207,23 @@ export default {
     }
 
     const pickerToken = interaction.id;
-    let selectedRoleId;
+    let selectedRoleIds = [];
     let currentRolePage = 0;
     let roleSearchQuery = '';
-    const firstPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery);
+    const firstPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery, selectedRoleIds);
     const jailRolePickerPayload = picker => ({
-      content: `Choose the jail role for **${clip(target.user.tag, 80)}**. ${roleSearchQuery ? `Search: ${roleSearchQuery}. ` : ''}Page ${picker.page + 1} of ${picker.pageCount}.`,
-      components: [new ActionRowBuilder().addComponents(picker.menu), buildJailRolePager(pickerToken, picker.page, picker.pageCount, roleSearchQuery)],
+      content: `Choose one or more jail roles for **${clip(target.user.tag, 80)}**. ${roleSearchQuery ? `Search: ${roleSearchQuery}. ` : ''}Selected: ${selectedRoleIds.length}. Page ${picker.page + 1} of ${picker.pageCount}.`,
+      components: [
+        new ActionRowBuilder().addComponents(picker.menu),
+        ...buildJailRolePager(pickerToken, picker.page, picker.pageCount, roleSearchQuery, selectedRoleIds.length),
+      ],
     });
     await interaction.reply({ ...jailRolePickerPayload(firstPicker), flags: MessageFlags.Ephemeral });
 
     try {
       const promptMessage = await interaction.fetchReply();
-      while (!selectedRoleId) {
+      let confirmed = false;
+      while (!confirmed) {
         const selection = await promptMessage.awaitMessageComponent({
           time: 60000,
           filter: i => i.user.id === interaction.user.id && (
@@ -180,7 +232,19 @@ export default {
         });
         if (selection.isButton()) {
           const control = selection.customId.split(':').at(-1);
-          if (control === 'search') {
+          if (control === 'apply') {
+            if (!selectedRoleIds.length) {
+              await selection.reply({ content: 'Select at least one jail role before applying.', flags: MessageFlags.Ephemeral });
+              continue;
+            }
+            await selection.deferUpdate();
+            confirmed = true;
+            continue;
+          }
+          if (control === 'clear_selection') {
+            selectedRoleIds = [];
+            currentRolePage = 0;
+          } else if (control === 'search') {
             const modal = new ModalBuilder().setCustomId(`jailrolemodal:${pickerToken}`).setTitle('Search jail roles');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_query').setLabel('Role name contains').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Leave empty to show all roles')));
             await selection.showModal(modal);
@@ -190,46 +254,62 @@ export default {
             });
             roleSearchQuery = modalSubmit.fields.getTextInputValue('role_query').trim();
             currentRolePage = 0;
-            const searchedPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery);
+            const searchedPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery, selectedRoleIds);
             await modalSubmit.update(jailRolePickerPayload(searchedPicker));
             continue;
+          } else if (control === 'clear_search') {
+            roleSearchQuery = '';
+            currentRolePage = 0;
+          } else if (control === 'prev') {
+            currentRolePage = Math.max(0, currentRolePage - 1);
+          } else if (control === 'next') {
+            currentRolePage++;
           }
-          if (control === 'clear_search') roleSearchQuery = '';
-          else if (control === 'prev') currentRolePage = Math.max(0, currentRolePage - 1);
-          else if (control === 'next') currentRolePage++;
-          const nextPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery);
+          const nextPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery, selectedRoleIds);
           currentRolePage = nextPicker.page;
           await selection.update(jailRolePickerPayload(nextPicker));
           continue;
         }
-        selectedRoleId = selection.values[0];
-        await selection.deferUpdate();
+
+        selectedRoleIds = updateJailRoleSelection(
+          assignableRoles,
+          currentRolePage,
+          selection.values,
+          selectedRoleIds,
+          roleSearchQuery,
+        );
+        const updatedPicker = buildJailRoleMenu(pickerToken, assignableRoles, currentRolePage, roleSearchQuery, selectedRoleIds);
+        currentRolePage = updatedPicker.page;
+        await selection.update(jailRolePickerPayload(updatedPicker));
       }
     } catch {
       return interaction.editReply({ content: 'Jail role selection timed out. Run /jail again.', components: [] });
     }
 
-    const selectedRole = assignableRoles.find(role => role.id === selectedRoleId);
-    if (!selectedRole) return interaction.editReply({ content: 'That jail role is no longer available. Run /jail again.', components: [] });
+    const selectedRoles = assignableRoles.filter(role => selectedRoleIds.includes(role.id));
+    if (!selectedRoles.length) return interaction.editReply({ content: 'No jail roles were selected. Run /jail again.', components: [] });
 
-    // Refresh the member in case another moderator assigned this role while the menu was open.
+    // Refresh the member in case another moderator assigned roles while the menu was open.
     target = await interaction.guild.members.fetch(target.id).catch(() => null);
     if (!target) return interaction.editReply({ content: 'That member is no longer in this server.', components: [] });
-    if (target.roles.cache.has(selectedRole.id)) {
+    const alreadyHeldRoles = selectedRoles.filter(role => target.roles.cache.has(role.id));
+    const rolesToAssign = selectedRoles.filter(role => !target.roles.cache.has(role.id));
+    if (!rolesToAssign.length) {
       return interaction.editReply({
-        content: 'That member already has this jail role. No changes were made.',
+        content: 'The member already has every selected jail role. No roles were added.',
         components: [],
       });
     }
-    const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
-    if (botMember.roles.highest.comparePositionTo(selectedRole) <= 0) return interaction.editReply({ content: 'My highest role must be above the selected jail role.', components: [] });
 
-    await target.roles.add(selectedRole, `Jailed by ${interaction.user.tag} (${interaction.user.id})`);
-    const evidenceLimit = Math.min(10, Math.max(1, Number(jail.evidenceMessageCount ?? 5)));
-    const fetched = await interaction.channel.messages.fetch({ limit: 100 }).catch(() => null);
-    const evidence = fetched
-      ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
-      : [];
+    const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
+    const unmanageableRoles = rolesToAssign.filter(role => botMember.roles.highest.comparePositionTo(role) <= 0);
+    if (unmanageableRoles.length) {
+      return interaction.editReply({
+        content: `My highest role must be above every selected jail role. I cannot assign: ${unmanageableRoles.map(role => role.name).join(', ')}.`,
+        components: [],
+      });
+    }
+
     const addon = interaction.options.getString('message')?.trim() || jail.defaultMessage?.trim() || '';
     const jailReason = interaction.options.getString('reason')?.trim() || 'None';
     const requestedSeconds = interaction.options.getInteger('duration');
@@ -237,14 +317,12 @@ export default {
     const sentenceSeconds = requestedSeconds ?? configuredDefault;
     const minimumSeconds = Math.max(1, Number(jail.minimumSentenceSeconds ?? 600));
     if (requestedSeconds !== null && requestedSeconds < minimumSeconds) {
-      await target.roles.remove(selectedRole).catch(() => null);
       return interaction.editReply({
         content: `The minimum sentence is **${formatSentence(minimumSeconds)}** (${minimumSeconds} seconds). Your selected sentence was ${formatSentence(requestedSeconds)}.`,
         components: [],
       });
     }
     if (sentenceSeconds !== null && (!Number.isSafeInteger(sentenceSeconds) || sentenceSeconds < minimumSeconds)) {
-      await target.roles.remove(selectedRole).catch(() => null);
       return interaction.editReply({
         content: `The configured default sentence is below the minimum of ${minimumSeconds} seconds. An administrator must update /config.`,
         components: [],
@@ -253,9 +331,34 @@ export default {
     const durationLabel = formatSentence(sentenceSeconds);
     const releaseAt = sentenceSeconds === null ? null : Date.now() + sentenceSeconds * 1000;
 
-    await interaction.editReply({ content: `Jail role selected: <@&${selectedRole.id}>.`, components: [] });
+    const assignedRoles = [];
+    const failedRoleAssignments = [];
+    for (const role of rolesToAssign) {
+      try {
+        await target.roles.add(role, `Jailed by ${interaction.user.tag} (${interaction.user.id})`);
+        assignedRoles.push(role);
+      } catch (error) {
+        failedRoleAssignments.push({ role, error });
+      }
+    }
+    if (!assignedRoles.length) {
+      return interaction.editReply({
+        content: `I could not assign any selected jail roles. Check my Manage Roles permission and role hierarchy. ${failedRoleAssignments.map(item => item.role.name).join(', ')}`,
+        components: [],
+      });
+    }
+
+    const evidenceLimit = Math.min(10, Math.max(1, Number(jail.evidenceMessageCount ?? 5)));
+    const fetched = await interaction.channel.messages.fetch({ limit: 100 }).catch(() => null);
+    const evidence = fetched
+      ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
+      : [];
+    await interaction.editReply({
+      content: `Assigned jail role(s) to **${clip(target.user.tag, 80)}**: ${clip(assignedRoles.map(role => `<@&${role.id}>`).join(', '), 1200)}.`,
+      components: [],
+    });
     const response = await interaction.followUp({
-      content: `<@!${target.id}> has been assigned <@&${selectedRole.id}>. Sentence: **${durationLabel}**.`,
+      content: `<@!${target.id}> has been assigned ${clip(assignedRoles.map(role => `<@&${role.id}>`).join(', '), 1200)}. Sentence: **${durationLabel}**.`,
       fetchReply: true,
       allowedMentions: { parse: [] },
     });
@@ -266,7 +369,7 @@ export default {
       .addFields(
         { name: 'Jailed member', value: `<@!${target.id}> (${target.id})`, inline: true },
         { name: 'Jailed by', value: `<@!${interaction.user.id}>`, inline: true },
-        { name: 'Jail role', value: `<@&${selectedRole.id}>`, inline: true },
+        ...jailRoleEvidenceFields(assignedRoles),
         { name: 'Sentence', value: sentenceSeconds === null ? 'Infinite' : `${durationLabel} (${sentenceSeconds.toLocaleString()} seconds)`, inline: true },
         { name: 'Original channel', value: `<#${interaction.channelId}> (${interaction.channelId})`, inline: true },
         { name: 'Time', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
@@ -334,28 +437,32 @@ export default {
       evidenceResult = `WARNING: member was jailed, but evidence forum post failed: ${clip(error.message, 300)}`;
     }
 
+    const assignedRoleIds = new Set(assignedRoles.map(role => role.id));
     const activeCases = Array.isArray(jail.activeCases)
-      ? jail.activeCases.filter(c => c.userId !== target.id || c.roleId !== selectedRole.id)
+      ? jail.activeCases.filter(item => item.userId !== target.id || !assignedRoleIds.has(item.roleId))
       : [];
-    activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt, sentenceSeconds, evidenceThreadId });
     const history = Array.isArray(jail.history) ? jail.history : [];
-    history.push({
-      userId: target.id,
-      username: target.user.tag,
-      moderatorId: interaction.user.id,
-      moderatorTag: interaction.user.tag,
-      reason: jailReason,
-      jailedAt: Date.now(),
-      sentenceSeconds,
-      releaseAt,
-      roleId: selectedRole.id,
-      evidenceThreadId,
-    });
+    const jailedAt = Date.now();
+    for (const role of assignedRoles) {
+      activeCases.push({ userId: target.id, roleId: role.id, releaseAt, sentenceSeconds, evidenceThreadId });
+      history.push({
+        userId: target.id,
+        username: target.user.tag,
+        moderatorId: interaction.user.id,
+        moderatorTag: interaction.user.tag,
+        reason: jailReason,
+        jailedAt,
+        sentenceSeconds,
+        releaseAt,
+        roleId: role.id,
+        evidenceThreadId,
+      });
+      if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: role.id, releaseAt });
+    }
     await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases, history } });
-    if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: selectedRole.id, releaseAt });
     const jailAnnouncement = renderAnnouncement(jail.jailAnnouncement || '{{user}} HAS BEEN JAILED', {
       user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`,
-      role: `<@&${selectedRole.id}>`, reason: jailReason, duration: durationLabel,
+      role: clip(assignedRoles.map(role => `<@&${role.id}>`).join(', '), 900), reason: jailReason, duration: durationLabel,
     });
     // Post the jail announcement in the channel where /jail was invoked,
     // rather than the jail role's private destination channel.
@@ -364,6 +471,10 @@ export default {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
     }
-    await interaction.followUp({ content: evidenceResult, flags: MessageFlags.Ephemeral });
+    const assignmentWarnings = [
+      alreadyHeldRoles.length ? `Already held and skipped: ${alreadyHeldRoles.map(role => role.name).join(', ')}.` : '',
+      failedRoleAssignments.length ? `Could not assign: ${failedRoleAssignments.map(item => item.role.name).join(', ')}.` : '',
+    ].filter(Boolean);
+    await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings].join('\\n'), flags: MessageFlags.Ephemeral });
   },
 };
