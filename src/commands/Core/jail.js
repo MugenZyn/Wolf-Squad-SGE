@@ -41,7 +41,8 @@ export default {
     .setDescription('Assign a registered jail role and forward evidence from this channel.')
     .addUserOption(o => o.setName('user').setDescription('Member to jail.').setRequired(true))
     .addIntegerOption(o => o.setName('duration').setDescription('Sentence length in seconds. Leave blank to use the configured default (infinite by default).').setMinValue(1).setMaxValue(2147483647))
-    .addStringOption(o => o.setName('message').setDescription('Optional extra text for the evidence post.').setMaxLength(1000)),
+    .addStringOption(o => o.setName('message').setDescription('Optional extra text for the evidence post.').setMaxLength(1000))
+    .addStringOption(o => o.setName('reason').setDescription('Reason for the jail sentence.').setRequired(true).setMaxLength(1000)),
 
   async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
@@ -105,6 +106,7 @@ export default {
       ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
       : [];
     const addon = interaction.options.getString('message')?.trim() || jail.defaultMessage?.trim() || '';
+    const jailReason = interaction.options.getString('reason', true).trim();
     const requestedSeconds = interaction.options.getInteger('duration');
     const configuredDefault = jail.defaultSentenceSeconds ?? legacySentenceSeconds(jail.defaultDuration);
     const sentenceSeconds = requestedSeconds ?? configuredDefault;
@@ -144,7 +146,7 @@ export default {
         { name: 'Original channel', value: `<#${interaction.channelId}> (${interaction.channelId})`, inline: true },
         { name: 'Time', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
       )
-      .setDescription(addon ? `**Additional note:**\n${clip(addon, 3500)}` : 'No additional note was provided.');
+      .setDescription(`**Reason:** ${clip(jailReason, 1800)}\n\n${addon ? `**Additional note:**\n${clip(addon, 1500)}` : 'No additional note was provided.'}`);
     if (evidence.length) {
       embed.addFields({
         name: `Forwarded messages (${evidence.length}/${evidenceLimit})`,
@@ -196,7 +198,20 @@ export default {
 
     const activeCases = Array.isArray(jail.activeCases) ? jail.activeCases.filter(c => c.userId !== target.id) : [];
     activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt, sentenceSeconds });
-    await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases } });
+    const history = Array.isArray(jail.history) ? jail.history : [];
+    history.push({
+      userId: target.id,
+      username: target.user.tag,
+      moderatorId: interaction.user.id,
+      moderatorTag: interaction.user.tag,
+      reason: jailReason,
+      jailedAt: Date.now(),
+      sentenceSeconds,
+      releaseAt,
+      roleId: selectedRole.id,
+      evidenceThreadId: null,
+    });
+    await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases, history } });
     if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: selectedRole.id, releaseAt });
     await interaction.followUp({ content: evidenceResult, flags: MessageFlags.Ephemeral });
   },
