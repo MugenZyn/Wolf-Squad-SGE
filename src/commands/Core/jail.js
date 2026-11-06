@@ -100,7 +100,7 @@ export default {
     if (botMember.roles.highest.comparePositionTo(selectedRole) <= 0) return interaction.editReply({ content: 'My highest role must be above the selected jail role.', components: [] });
 
     await target.roles.add(selectedRole, `Jailed by ${interaction.user.tag} (${interaction.user.id})`);
-    const evidenceLimit = Math.min(5, Math.max(1, Number(jail.evidenceMessageCount ?? 5)));
+    const evidenceLimit = Math.min(10, Math.max(1, Number(jail.evidenceMessageCount ?? 5)));
     const fetched = await interaction.channel.messages.fetch({ limit: 100 }).catch(() => null);
     const evidence = fetched
       ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
