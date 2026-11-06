@@ -116,7 +116,7 @@ function jailRoleEvidenceFields(roles) {
     value,
     inline: true,
   }));
-
+}
 
 async function findExistingEvidenceThread(forum, userId, jail) {
   const knownIds = [
