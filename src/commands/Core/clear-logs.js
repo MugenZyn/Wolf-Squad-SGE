@@ -1,11 +1,11 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
 import { getGuildConfig, updateGuildConfig } from '../../services/config/guildConfig.js';
 
 export default {
   data: new SlashCommandBuilder()
     .setName('clear-logs')
     .setDescription('Clear a member’s saved jail history.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addUserOption(option => option
       .setName('user')
       .setDescription('Member whose jail history should be cleared.')
@@ -15,8 +15,8 @@ export default {
     if (!interaction.inGuild() || !interaction.guild) {
       return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
     }
-    if (!memberHasModerationCommandAccess(interaction.member, guildConfig, PermissionFlagsBits.ManageMessages)) {
-      return interaction.reply({ content: 'You need Administrator, Manage Messages, or a configured policeman role to clear jail history.', flags: MessageFlags.Ephemeral });
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+      return interaction.reply({ content: 'Only administrators can clear jail history.', flags: MessageFlags.Ephemeral });
     }
 
     const target = interaction.options.getUser('user', true);
