@@ -14,7 +14,7 @@ export default {
     const existingJail = current?.jail ?? {};
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
     setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, selections: {}, existing: {
-      jailRoleId: existingJail.roles?.[0]?.roleId ?? null,
+      jailRoleIds: (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean),
       lawyerRoleId: existingJail.lawyerRoleId ?? null,
       categoryId: existingJail.categoryId ?? null,
       jailChannelId: existingJail.channelId ?? null,
@@ -33,8 +33,8 @@ export default {
       return true;
     }
     if (interaction.isButton() && field === 'save') {
-      if (!(session.selections.jailRoleId || session.existing.jailRoleId)) {
-        await interaction.reply({ content: 'Select a jail role before saving.', flags: MessageFlags.Ephemeral });
+      if (!(session.selections.jailRoleIds?.length || session.existing.jailRoleIds?.length)) {
+        await interaction.reply({ content: 'Select at least one jail role before saving.', flags: MessageFlags.Ephemeral });
         return true;
       }
       setupSessions.delete(token);
@@ -44,7 +44,11 @@ export default {
       return true;
     }
     if (interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu()) {
-      if (interaction.values[0]) session.selections[field] = interaction.values[0];
+      if (field === 'jailRoleIds' && interaction.isRoleSelectMenu()) {
+        session.selections.jailRoleIds = interaction.values;
+      } else if (interaction.values[0]) {
+        session.selections[field] = interaction.values[0];
+      }
       await interaction.update({ content: setupPanelText(session), components: buildSetupPanel(token) });
       return true;
     }
@@ -57,9 +61,17 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
     const existingJail = guildConfig?.jail ?? {};
-    const oldJailRoleId = existingJail.roles?.[0]?.roleId || null;
-    let jailRoleId = selections.jailRoleId || oldJailRoleId || null;
-    let jailRole = jailRoleId ? await guild.roles.fetch(jailRoleId).catch(() => null) : null;
+    const oldJailRoleIds = (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean);
+    let jailRoleIds = selections.jailRoleIds?.length ? selections.jailRoleIds : oldJailRoleIds;
+    if (!jailRoleIds.length) jailRoleIds = [];
+    await guild.roles.fetch();
+    if (!jailRoleIds.length) {
+      const defaultRole = guild.roles.cache.find(role => role.name === 'SGE - JAIL') || await guild.roles.create({ name: 'SGE - JAIL', reason });
+      jailRoleIds = [defaultRole.id];
+    }
+    const jailRoles = await Promise.all(jailRoleIds.map(id => guild.roles.fetch(id).catch(() => null)));
+    if (jailRoles.some(role => !role)) return interaction.editReply('One or more selected jail roles could not be found.');
+    const uniqueJailRoles = [...new Map(jailRoles.map(role => [role.id, role])).values()];
     let lawyerRoleId = selections.lawyerRoleId || existingJail.lawyerRoleId || null;
     const previousLawyerRoleId = existingJail.lawyerRoleId || null;
     const categoryId = selections.categoryId || existingJail.categoryId || null;
@@ -74,12 +86,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
 
     const botMember = guild.members.me ?? await guild.members.fetchMe();
     if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Roles permission to create or configure the jail roles.');
-    if (!jailRole) {
-      await guild.roles.fetch();
-      jailRole = guild.roles.cache.find(role => role.name === 'SGE - JAIL') || await guild.roles.create({ name: 'SGE - JAIL', reason });
-      jailRoleId = jailRole.id;
-    }
-    if (jailRole.guild.id !== guild.id || jailRole.id === guild.id || jailRole.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply('The jail role must be a server role, cannot be @everyone, and cannot have Administrator permission.');
+    if (uniqueJailRoles.some(role => role.guild.id !== guild.id || role.id === guild.id || role.permissions.has(PermissionFlagsBits.Administrator))) return interaction.editReply('Jail roles must be server roles, cannot be @everyone, and cannot have Administrator permission.');
     let lawyerRole = lawyerRoleId ? await guild.roles.fetch(lawyerRoleId).catch(() => null) : null;
     if (!lawyerRole) {
       await guild.roles.fetch();
@@ -88,7 +95,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     }
     if (lawyerRole.id === guild.id) return interaction.editReply('I could not use @everyone as the lawyer role.');
     if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels) || !botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Channels and Manage Roles permissions.');
-    if (botMember.roles.highest.comparePositionTo(jailRole) <= 0 || (lawyerRole && botMember.roles.highest.comparePositionTo(lawyerRole) <= 0)) return interaction.editReply('My highest role must be above both selected roles.');
+    if (uniqueJailRoles.some(role => botMember.roles.highest.comparePositionTo(role) <= 0) || (lawyerRole && botMember.roles.highest.comparePositionTo(lawyerRole) <= 0)) return interaction.editReply('My highest role must be above all selected roles.');
 
     let jailChannel = existingChannelId ? await guild.channels.fetch(existingChannelId).catch(() => null) : null;
     if (existingChannelId && jailChannel?.type !== ChannelType.GuildText) return interaction.editReply('jail_channel_id must identify an existing text channel.');
@@ -113,19 +120,18 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       channel.type === ChannelType.GuildCategory && channel.id !== category?.id
     );
     for (const otherCategory of otherCategories.values()) {
-      await otherCategory.permissionOverwrites.edit(jailRole.id, { ViewChannel: false }, reason);
+      for (const role of uniqueJailRoles) await otherCategory.permissionOverwrites.edit(role.id, { ViewChannel: false }, reason);
     }
-    if (category) await category.permissionOverwrites.edit(jailRole.id, { ViewChannel: true }, reason);
+    if (category) for (const role of uniqueJailRoles) await category.permissionOverwrites.edit(role.id, { ViewChannel: true }, reason);
 
-    const existingRoleCount = Array.isArray(guildConfig?.jail?.roles)
-      ? guildConfig.jail.roles.filter(x => x?.roleId !== jailRole.id).length
-      : 0;
-    if (existingRoleCount >= 25) return interaction.editReply('Discord dropdowns support up to 25 registered jail roles. Remove one before adding another.');
+    const existingRoleIds = new Set((existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean));
+    const combinedRoleIds = new Set([...existingRoleIds, ...uniqueJailRoles.map(role => role.id)]);
+    if (combinedRoleIds.size > 25) return interaction.editReply('Discord role selectors support up to 25 jail roles. Remove some before adding more.');
 
     const botRoleIds = new Set(botMember.roles.cache.keys());
     const categoryOverwrites = category
       ? [...category.permissionOverwrites.cache.values()]
-          .filter(overwrite => ![guild.id, jailRole.id, lawyerRoleId, botMember.id].includes(overwrite.id) && !botRoleIds.has(overwrite.id))
+          .filter(overwrite => ![guild.id, ...uniqueJailRoles.map(role => role.id), lawyerRoleId, botMember.id].includes(overwrite.id) && !botRoleIds.has(overwrite.id))
           .map(overwrite => ({ id: overwrite.id, deny: [PermissionFlagsBits.ViewChannel] }))
       : [];
     if (!jailChannel) {
@@ -137,7 +143,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
         permissionOverwrites: [
           { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
           ...categoryOverwrites,
-          { id: jailRole.id, allow: JAIL_ALLOW },
+          ...uniqueJailRoles.map(role => ({ id: role.id, allow: JAIL_ALLOW })),
           ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
           { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
         ],
@@ -145,7 +151,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     }
 
     await jailChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, reason);
-    await jailChannel.permissionOverwrites.edit(jailRole.id, { allow: JAIL_ALLOW, deny: [] }, reason);
+    for (const role of uniqueJailRoles) await jailChannel.permissionOverwrites.edit(role.id, { allow: JAIL_ALLOW, deny: [] }, reason);
     if (lawyerRole) await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
 
     let evidenceForum = forumId ? await guild.channels.fetch(forumId).catch(() => null) : null;
@@ -194,8 +200,13 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     await logsChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, 'Restrict default jail log visibility');
     await logsChannel.permissionOverwrites.edit(botMember.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, 'Ensure bot can use jail logs');
 
-    const roles = Array.isArray(existingJail.roles) ? existingJail.roles.filter(x => x?.roleId !== jailRole.id) : [];
-    roles.push({ roleId: jailRole.id, channelId: jailChannel.id });
+    const roles = Array.isArray(existingJail.roles) ? [...existingJail.roles] : [];
+    for (const role of uniqueJailRoles) {
+      const index = roles.findIndex(item => item?.roleId === role.id);
+      const entry = { roleId: role.id, channelId: jailChannel.id };
+      if (index >= 0) roles[index] = entry;
+      else roles.push(entry);
+    }
     await updateGuildConfig(interaction.client, guild.id, {
       jail: { ...existingJail, channelId: jailChannel.id, categoryId: category?.id ?? null, evidenceForumId: evidenceForum.id, logsChannelId: logsChannel.id, lawyerRoleId, roles }
     });
@@ -214,7 +225,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       category ? `Jail category: ${category} (${category.id})` : 'The existing jail channel has no category; no category was created.',
       `Evidence forum: ${evidenceForum} (${evidenceForum.id})`,
       `Logs channel: ${logsChannel} (${logsChannel.id})`,
-      `Jail role: <@&${jailRole.id}>`,
+      `Jail roles: ${uniqueJailRoles.map(role => `<@&${role.id}>`).join(', ')}`,
       lawyerRole ? `Lawyer role can view the entire jail category and evidence forum: <@&${lawyerRole.id}>` : 'No lawyer role configured.',
       'Setup applies permissions once. Later manual staff changes are not automatically synchronized or repaired.'
     ].join('\n'));
@@ -226,7 +237,7 @@ function setupPanelText(session) {
   const s = session.selections;
   return [
     '**Jail setup** — choose the resources below, then press Save.',
-    `Jail role: ${s.jailRoleId ? `<@&${s.jailRoleId}>` : 'Not selected (required)'}`,
+    `Jail roles: ${(s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).length ? (s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).map(id => `<@&${id}>`).join(', ') : 'Not selected (required)'}`,
     `Lawyer role: ${s.lawyerRoleId ? `<@&${s.lawyerRoleId}>` : 'None'}`,
     `Category: ${s.categoryId ? `<#${s.categoryId}>` : (s.jailChannelId ? 'Use the selected channel category (if any)' : 'Create default JAIL category')}`,
     `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create default jail channel'}`,
@@ -237,7 +248,7 @@ function setupPanelText(session) {
 
 function buildSetupPanel(token) {
   return [
-    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleId`).setPlaceholder('1. Select required jail role').setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleIds`).setPlaceholder('1. Select jail roles (multiple allowed)').setMinValues(0).setMaxValues(25)),
     new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('2. Select optional lawyer role').setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('4. Select existing jail channel').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('5. Select existing evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
