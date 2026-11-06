@@ -202,9 +202,6 @@ export default {
       const jail = current?.jail ?? {};
       let menu;
       if (action === 'message_config') {
-        const { getGuildConfig } = await import('../../services/config/guildConfig.js');
-        const current = await getGuildConfig(client, interaction.guildId);
-        const jail = current?.jail ?? {};
         const embed = new EmbedBuilder().setColor(0x5865F2).setTitle('Jail message configuration')
           .setDescription('Choose which message to edit. Placeholders are replaced automatically.')
           .addFields(
