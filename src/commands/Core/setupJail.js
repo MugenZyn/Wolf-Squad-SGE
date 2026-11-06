@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, ChannelSelectMenuBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder, MessageFlags, StringSelectMenuBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, PermissionFlagsBits, SlashCommandBuilder, MessageFlags, StringSelectMenuBuilder } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 
 const ID_PATTERN = /^\d{17,20}$/;
@@ -478,7 +478,7 @@ function setupPaginatedRoleMenu(token, session, field, placeholder, multiple) {
     .setCustomId(`jsetup:${token}:${field}:${page}`)
     .setPlaceholder(`${placeholder} (page ${page + 1}/${pageCount})`)
     .setMinValues(0)
-    .setMaxValues(multiple ? 25 : 1)
+    .setMaxValues(Math.min(multiple ? 25 : 1, Math.max(1, options.length)))
     .addOptions(options);
 }
 
