@@ -110,12 +110,21 @@ function chunkTextItems(items, maxLength = 950, separator = ', ') {
 }
 
 function jailRoleEvidenceFields(roles) {
-  const chunks = chunkTextItems(roles.map(role => `<@&${role.id}>`));
-  return chunks.map((value, index) => ({
-    name: chunks.length > 1 ? `Jail roles (${index + 1}/${chunks.length})` : 'Jail roles',
-    value,
-    inline: true,
-  }));
+  const roleMentions = roles.map(role => `<@&${role.id}>`);
+  const combined = roleMentions.join(', ');
+  if (combined.length <= 950) {
+    return [{ name: 'Jail roles', value: combined || 'None', inline: true }];
+  }
+  return [{
+    name: 'Jail roles assigned',
+    value: `${roles.length} roles assigned. The complete role list is included in the messages below.`,
+    inline: false,
+  }];
+}
+
+function jailRoleEvidenceMessages(roles, maxLength = 1700) {
+  const mentions = roles.map(role => `<@&${role.id}>`);
+  return chunkTextItems(mentions, maxLength);
 }
 
 async function findExistingEvidenceThread(forum, userId, jail) {
@@ -354,11 +363,11 @@ export default {
       ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
       : [];
     await interaction.editReply({
-      content: `Assigned jail role(s) to **${clip(target.user.tag, 80)}**: ${clip(assignedRoles.map(role => `<@&${role.id}>`).join(', '), 1200)}.`,
+      content: `Assigned ${assignedRoles.length} jail role(s) to **${clip(target.user.tag, 80)}**. Sentence: **${durationLabel}**.`,
       components: [],
     });
     const response = await interaction.followUp({
-      content: `<@!${target.id}> has been assigned ${clip(assignedRoles.map(role => `<@&${role.id}>`).join(', '), 1200)}. Sentence: **${durationLabel}**.`,
+      content: `<@!${target.id}> has been assigned ${assignedRoles.length} jail role(s). Sentence: **${durationLabel}**.`,
       fetchReply: true,
       allowedMentions: { parse: [] },
     });
@@ -418,6 +427,21 @@ export default {
       }
       evidenceThreadId = evidenceThread.id;
 
+      const roleListChunks = assignedRoles.map(role => `<@&${role.id}>`).join(', ').length > 950
+        ? jailRoleEvidenceMessages(assignedRoles)
+        : [];
+      const roleListErrors = [];
+      for (let index = 0; index < roleListChunks.length; index++) {
+        try {
+          await evidenceThread.send({
+            content: `**Jail roles assigned (${index + 1}/${roleListChunks.length}):**\\n${roleListChunks[index]}`,
+            allowedMentions: { parse: [] },
+          });
+        } catch (error) {
+          roleListErrors.push(error);
+        }
+      }
+
       let forwardedCount = 0;
       const forwardErrors = [];
       for (const message of evidence) {
@@ -432,6 +456,9 @@ export default {
         evidenceResult = `Evidence post created. Forwarded ${forwardedCount}/${evidence.length} messages; ${forwardErrors.length} could not be forwarded.`;
       } else if (evidence.length) {
         evidenceResult = `Evidence post created. All ${forwardedCount} messages were forwarded.`;
+      }
+      if (roleListErrors.length) {
+        evidenceResult += ` Could not post ${roleListErrors.length} jail-role list message(s); check bot permissions and logs.`;
       }
     } catch (error) {
       evidenceResult = `WARNING: member was jailed, but evidence forum post failed: ${clip(error.message, 300)}`;
@@ -462,7 +489,7 @@ export default {
     await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases, history } });
     const jailAnnouncement = renderAnnouncement(jail.jailAnnouncement || '{{user}} HAS BEEN JAILED', {
       user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`,
-      role: clip(assignedRoles.map(role => `<@&${role.id}>`).join(', '), 900), reason: jailReason, duration: durationLabel,
+      role: assignedRoles.length === 1 ? `<@&${assignedRoles[0].id}>` : `${assignedRoles.length} jail roles`, reason: jailReason, duration: durationLabel,
     });
     // Post the jail announcement in the channel where /jail was invoked,
     // rather than the jail role's private destination channel.
