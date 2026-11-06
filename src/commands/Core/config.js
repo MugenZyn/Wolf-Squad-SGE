@@ -394,7 +394,7 @@ export default {
         .setTitle(`Change ${setting.label}`);
       const input = new TextInputBuilder()
         .setCustomId('setting_value')
-        .setLabel(field === 'default_seconds' ? 'Seconds, or INFINITE' : field === 'default_message' ? 'Message text (or CLEAR)' : 'Announcement template')
+        .setLabel(field === 'default_seconds' ? 'Seconds, or INFINITE' : field === 'default_message' ? 'Message text (or CLEAR)' : ['jail_announcement', 'unjail_announcement'].includes(field) ? 'Announcement template' : 'Value')
         .setStyle(['default_message', 'jail_announcement', 'unjail_announcement'].includes(field) ? TextInputStyle.Paragraph : TextInputStyle.Short)
         .setRequired(!['default_message', 'jail_announcement', 'unjail_announcement'].includes(field))
         .setMaxLength(['default_message', 'jail_announcement', 'unjail_announcement'].includes(field) ? 1000 : 20);
