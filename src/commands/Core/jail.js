@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, PermissionFlagsBits,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, MessageReferenceType, PermissionFlagsBits,
   SlashCommandBuilder, StringSelectMenuBuilder,
 } from 'discord.js';
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
@@ -146,8 +146,10 @@ export default {
       )
       .setDescription(addon ? `**Additional note:**\n${clip(addon, 3500)}` : 'No additional note was provided.');
     if (evidence.length) {
-      const body = evidence.map(m => `**<t:${Math.floor(m.createdTimestamp / 1000)}:f>** — ${clip(m.content || '[No text content]', 700)}${m.attachments.size ? `\nAttachments: ${[...m.attachments.values()].map(a => a.url).join(' ')}` : ''}`).join('\n\n');
-      embed.addFields({ name: `Recent messages from the jailed member (${evidence.length}/${evidenceLimit})`, value: clip(body, 1024) });
+      embed.addFields({
+        name: `Forwarded messages (${evidence.length}/${evidenceLimit})`,
+        value: 'The original messages are forwarded individually below.',
+      });
     } else {
       embed.addFields({ name: 'Recent messages', value: 'No recent messages from this member were found in the channel where /jail was run.' });
     }
@@ -160,11 +162,34 @@ export default {
 
     let evidenceResult = 'Evidence post created.';
     try {
-      await forum.threads.create({
+      const evidenceThread = await forum.threads.create({
         name: `Jail — ${target.user.username}`.slice(0, 100),
         message: { embeds: [embed], components: [jumpButton], allowedMentions: { parse: [] } },
         reason: `Jail evidence for ${target.id}`,
       });
+
+      let forwardedCount = 0;
+      const forwardErrors = [];
+      for (const message of evidence) {
+        try {
+          await evidenceThread.send({
+            messageReference: {
+              type: MessageReferenceType.Forward,
+              messageId: message.id,
+              channelId: message.channelId,
+              guildId: interaction.guild.id,
+            },
+          });
+          forwardedCount++;
+        } catch (error) {
+          forwardErrors.push(`${message.id}: ${clip(error.message, 160)}`);
+        }
+      }
+      if (forwardErrors.length) {
+        evidenceResult = `Evidence post created. Forwarded ${forwardedCount}/${evidence.length} messages; ${forwardErrors.length} could not be forwarded.`;
+      } else if (evidence.length) {
+        evidenceResult = `Evidence post created. All ${forwardedCount} messages were forwarded.`;
+      }
     } catch (error) {
       evidenceResult = `WARNING: member was jailed, but evidence forum post failed: ${clip(error.message, 300)}`;
     }
