@@ -149,6 +149,15 @@ export default {
     await updateGuildConfig(interaction.client, guild.id, {
       jail: { ...existingJail, channelId: jailChannel.id, categoryId: category?.id ?? null, evidenceForumId: evidenceForum.id, logsChannelId: logsChannel.id, lawyerRoleId, roles }
     });
+    await logsChannel.send({
+      embeds: [{
+        color: 0x2B8A3E,
+        title: 'Command executed: /setup-jail',
+        description: `**Staff:** <@${user.id}> (${user.id})\n**Jail role:** <@&${jailRole.id}>\n**Jail channel:** <#${jailChannel.id}>\n**Evidence forum:** <#${evidenceForum.id}>\n**Logs channel:** <#${logsChannel.id}>`,
+        timestamp: new Date().toISOString(),
+      }],
+      allowedMentions: { parse: [] },
+    }).catch(() => null);
 
     return interaction.editReply([
       `Jail channel configured: ${jailChannel} (${jailChannel.id})`,
