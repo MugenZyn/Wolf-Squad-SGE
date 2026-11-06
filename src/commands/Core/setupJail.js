@@ -50,7 +50,7 @@ export default {
     } else if (jailChannel?.parentId) {
       category = await guild.channels.fetch(jailChannel.parentId).catch(() => null);
     } else if (!jailChannel) {
-      category = await guild.channels.create({ name: categoryName || 'jail', type: ChannelType.GuildCategory, reason });
+      category = await guild.channels.create({ name: categoryName || 'JAIL', type: ChannelType.GuildCategory, reason });
     }
     if (category && jailChannel && jailChannel.parentId !== category.id) {
       await jailChannel.setParent(category.id, { lockPermissions: false, reason });
