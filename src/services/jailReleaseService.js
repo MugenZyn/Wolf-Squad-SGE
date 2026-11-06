@@ -10,6 +10,10 @@ export function scheduleJailRelease(client, guildId, jailCase) {
   const delay = Math.max(0, Math.min(jailCase.releaseAt - Date.now(), 2147483647));
   const timer = setTimeout(async () => {
     scheduled.delete(key);
+    if (jailCase.releaseAt > Date.now()) {
+      scheduleJailRelease(client, guildId, jailCase);
+      return;
+    }
     try {
       const guild = client.guilds.cache.get(guildId) ?? await client.guilds.fetch(guildId);
       const member = await guild.members.fetch(jailCase.userId).catch(() => null);
