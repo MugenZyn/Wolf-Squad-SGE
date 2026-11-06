@@ -52,11 +52,25 @@ export default {
       return true;
     }
     if (interaction.isButton() && field === 'permissions') {
+      if (session.selections.managePermissions !== false && !hasCompleteExistingSelections(session)) {
+        await interaction.reply({
+          content: 'To skip permission edits, explicitly select an existing category, default jail channel, evidence forum, at least one jail role, and a lawyer role first.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
       session.selections.managePermissions = session.selections.managePermissions === false;
       await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'channels') });
       return true;
     }
     if (interaction.isButton() && field === 'save') {
+      if (session.selections.managePermissions === false && !hasCompleteExistingSelections(session)) {
+        await interaction.reply({
+          content: 'You can only skip permission edits when you have explicitly selected an existing category, default jail channel, evidence forum, at least one jail role, and a lawyer role.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
       setupSessions.delete(token);
       await interaction.deferUpdate();
       await interaction.editReply({ content: 'CREATING...', embeds: [], components: [] });
@@ -312,7 +326,8 @@ function buildSetupPanel(token, page = 'roles') {
         new ButtonBuilder()
           .setCustomId(`jsetup:${token}:permissions`)
           .setLabel(session?.selections?.managePermissions === false ? 'Enable permission edits' : 'Skip permission edits')
-          .setStyle(session?.selections?.managePermissions === false ? ButtonStyle.Secondary : ButtonStyle.Primary),
+          .setStyle(session?.selections?.managePermissions === false ? ButtonStyle.Secondary : ButtonStyle.Primary)
+          .setDisabled(session?.selections?.managePermissions !== false && !hasCompleteExistingSelections(session)),
         new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success),
       ),
     ];
@@ -323,6 +338,18 @@ function buildSetupPanel(token, page = 'roles') {
     new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:policemanRoleIds`).setPlaceholder('Select policeman roles (optional)').setMinValues(0).setMaxValues(25)),
     new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:next`).setLabel('Next: Channels').setStyle(ButtonStyle.Primary)),
   ];
+}
+
+function hasCompleteExistingSelections(session) {
+  const selections = session?.selections ?? {};
+  return Boolean(
+    selections.categoryId &&
+    selections.jailChannelId &&
+    selections.evidenceForumId &&
+    Array.isArray(selections.jailRoleIds) &&
+    selections.jailRoleIds.length > 0 &&
+    selections.lawyerRoleId
+  );
 }
 
 function hasExistingJailSetup(jail = {}) {
