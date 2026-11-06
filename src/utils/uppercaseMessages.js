@@ -1,13 +1,17 @@
 const URL_PATTERN = /https?:\/\/[^\s<>]+/gi;
 
 function uppercaseText(value) {
-  const urls = [];
+  const preserved = [];
   const protectedText = value.replace(URL_PATTERN, url => {
-    const marker = `\u0000URL${urls.length}\u0000`;
-    urls.push(url);
+    const marker = `\u0000KEEP${preserved.length}\u0000`;
+    preserved.push(url);
+    return marker;
+  }).replace(/<t:\\d+(?::[tTdDfFR])?>/g, timestamp => {
+    const marker = `\u0000KEEP${preserved.length}\u0000`;
+    preserved.push(timestamp);
     return marker;
   });
-  return protectedText.toUpperCase().replace(/\u0000URL(\d+)\u0000/g, (_, index) => urls[Number(index)]);
+  return protectedText.toUpperCase().replace(/\u0000KEEP(\d+)\u0000/g, (_, index) => preserved[Number(index)]);
 }
 
 export function uppercaseMessagePayload(payload) {
