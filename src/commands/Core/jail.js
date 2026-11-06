@@ -313,10 +313,18 @@ export default {
     const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
     const unmanageableRoles = rolesToAssign.filter(role => botMember.roles.highest.comparePositionTo(role) <= 0);
     if (unmanageableRoles.length) {
-      return interaction.editReply({
-        content: `My highest role must be above every selected jail role. I cannot assign: ${unmanageableRoles.map(role => role.name).join(', ')}.`,
+      await interaction.editReply({
+        content: 'My highest role must be above every selected jail role. I cannot assign ' + unmanageableRoles.length + ' selected role(s). The complete list follows.',
         components: [],
       });
+      const roleChunks = chunkTextItems(unmanageableRoles.map(role => role.name));
+      for (let index = 0; index < roleChunks.length; index++) {
+        await interaction.followUp({
+          content: 'Roles blocked by hierarchy (' + (index + 1) + '/' + roleChunks.length + '):\n' + roleChunks[index],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return;
     }
 
     const addon = interaction.options.getString('message')?.trim() || jail.defaultMessage?.trim() || '';
@@ -351,10 +359,18 @@ export default {
       }
     }
     if (!assignedRoles.length) {
-      return interaction.editReply({
-        content: `I could not assign any selected jail roles. Check my Manage Roles permission and role hierarchy. ${failedRoleAssignments.map(item => item.role.name).join(', ')}`,
+      await interaction.editReply({
+        content: 'I could not assign any of the ' + failedRoleAssignments.length + ' selected jail role(s). Check my Manage Roles permission and role hierarchy. The complete list follows.',
         components: [],
       });
+      const roleChunks = chunkTextItems(failedRoleAssignments.map(item => item.role.name));
+      for (let index = 0; index < roleChunks.length; index++) {
+        await interaction.followUp({
+          content: 'Roles not assigned (' + (index + 1) + '/' + roleChunks.length + '):\n' + roleChunks[index],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return;
     }
 
     const evidenceLimit = Math.min(10, Math.max(1, Number(jail.evidenceMessageCount ?? 5)));
@@ -499,9 +515,24 @@ export default {
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
     }
     const assignmentWarnings = [
-      alreadyHeldRoles.length ? `Already held and skipped: ${alreadyHeldRoles.map(role => role.name).join(', ')}.` : '',
-      failedRoleAssignments.length ? `Could not assign: ${failedRoleAssignments.map(item => item.role.name).join(', ')}.` : '',
+      alreadyHeldRoles.length ? alreadyHeldRoles.length + ' role(s) were already held and skipped.' : '',
+      failedRoleAssignments.length ? failedRoleAssignments.length + ' role(s) could not be assigned.' : '',
     ].filter(Boolean);
     await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings].join('\n'), flags: MessageFlags.Ephemeral });
+
+    const skippedRoleChunks = chunkTextItems(alreadyHeldRoles.map(role => role.name));
+    for (let index = 0; index < skippedRoleChunks.length; index++) {
+      await interaction.followUp({
+        content: 'Already-held roles skipped (' + (index + 1) + '/' + skippedRoleChunks.length + '):\n' + skippedRoleChunks[index],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    const failedRoleChunks = chunkTextItems(failedRoleAssignments.map(item => item.role.name));
+    for (let index = 0; index < failedRoleChunks.length; index++) {
+      await interaction.followUp({
+        content: 'Roles not assigned (' + (index + 1) + '/' + failedRoleChunks.length + '):\n' + failedRoleChunks[index],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
   },
 };
