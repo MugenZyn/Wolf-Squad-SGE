@@ -26,11 +26,13 @@ function panelPayload(jail) {
       { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 1), inline: true },
       { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
     );
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId('jconfig:choose')
-    .setPlaceholder('Select a setting to view or change')
-    .addOptions(SETTINGS.map(s => ({ label: s.label, value: s.value, description: s.description })));
-  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)], flags: MessageFlags.Ephemeral };
+  const menus = SETTINGS.map(setting => new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`jconfig:${setting.value}`)
+      .setPlaceholder(`Change ${setting.label}`)
+      .addOptions([{ label: setting.label, value: setting.value, description: setting.description }]),
+  ));
+  return { embeds: [embed], components: menus, flags: MessageFlags.Ephemeral };
 }
 
 export default {
@@ -50,7 +52,7 @@ export default {
   },
 
   async handleComponent(interaction, client) {
-    if (interaction.customId === 'jconfig:choose' && interaction.isStringSelectMenu()) {
+    if (interaction.customId.startsWith('jconfig:') && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
         await interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
         return true;
