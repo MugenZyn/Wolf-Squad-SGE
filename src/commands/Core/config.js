@@ -114,7 +114,7 @@ export default {
   },
 
   async handleComponent(interaction, client) {
-    if (interaction.customId === 'jconfig:channel_role' && interaction.isRoleSelectMenu()) {
+    if (interaction.customId === 'jconfig:channel_role' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const roleId = interaction.values[0];
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
@@ -151,18 +151,56 @@ export default {
     if (interaction.customId === 'jconfig:role_action' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const action = interaction.values[0];
-      const menu = new RoleSelectMenuBuilder()
-        .setCustomId(action === 'set_policeman' ? 'jconfig:policeman_roles' : action === 'set_jail_channel' ? 'jconfig:channel_role' : 'jconfig:remove_roles')
-        .setMinValues(0)
-        .setMaxValues(action === 'set_jail_channel' ? 1 : 25)
-        .setMinValues(action === 'set_jail_channel' ? 1 : 0)
-        .setPlaceholder(action === 'set_policeman' ? 'Choose policeman roles (multiple allowed)' : action === 'set_jail_channel' ? 'Choose the jail role to configure' : 'Choose configured roles to remove');
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = current?.jail ?? {};
+      let menu;
+      if (action === 'set_policeman') {
+        // This is the assignment step, so administrators may choose any server role.
+        menu = new RoleSelectMenuBuilder()
+          .setCustomId('jconfig:policeman_roles')
+          .setMinValues(0)
+          .setMaxValues(25)
+          .setPlaceholder('Choose policeman roles (multiple allowed)');
+      } else {
+        const configuredIds = action === 'set_jail_channel'
+          ? [...new Set((jail.roles ?? []).map(item => item?.roleId).filter(Boolean))]
+          : [...new Set([
+              ...(jail.roles ?? []).map(item => item?.roleId).filter(Boolean),
+              jail.lawyerRoleId,
+              ...(jail.policemanRoleIds ?? []),
+            ].filter(Boolean))];
+        const configuredRoles = (await Promise.all(configuredIds.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
+        if (!configuredRoles.length) {
+          return interaction.update({
+            content: action === 'set_jail_channel'
+              ? 'No jail roles are configured yet. Run /setup-jail first.'
+              : 'There are no configured jail, lawyer, or policeman roles to remove.',
+            embeds: [],
+            components: [],
+          });
+        }
+        menu = new StringSelectMenuBuilder()
+          .setCustomId(action === 'set_jail_channel' ? 'jconfig:channel_role' : 'jconfig:remove_roles')
+          .setMinValues(1)
+          .setMaxValues(action === 'set_jail_channel' ? 1 : Math.min(25, configuredRoles.length))
+          .setPlaceholder(action === 'set_jail_channel' ? 'Choose a configured jail role' : 'Choose configured roles to remove')
+          .addOptions(configuredRoles.slice(0, 25).map(role => ({
+            label: role.name.slice(0, 100),
+            value: role.id,
+            description: action === 'set_jail_channel' ? 'Configured jail role' : [
+              (jail.roles ?? []).some(item => item?.roleId === role.id) ? 'Jail' : '',
+              jail.lawyerRoleId === role.id ? 'Lawyer' : '',
+              (jail.policemanRoleIds ?? []).includes(role.id) ? 'Policeman' : '',
+            ].filter(Boolean).join(' / '),
+          })));
+      }
       return interaction.update({
         content: action === 'set_policeman'
           ? 'Select the policeman roles to authorize. Select none and submit to clear all policeman roles; no role will be created.'
           : action === 'set_jail_channel'
-            ? 'Select the jail role whose channel you want to change.'
-            : 'Select one or more configured jail, lawyer, or policeman roles, then choose whether to only unassign them or also delete the Discord roles.',
+            ? 'Select a jail role that is already registered in the jail configuration.'
+            : 'Select only from roles already configured as jail, lawyer, or policeman roles.',
         embeds: [],
         components: [new ActionRowBuilder().addComponents(menu)],
       });
@@ -176,7 +214,7 @@ export default {
       await updateGuildConfig(client, interaction.guildId, { jail });
       return interaction.update({ content: `Saved ${roleIds.length} policeman role(s): ${roleIds.length ? roleIds.map(id => `<@&${id}>`).join(', ') : 'None'}.`, embeds: [], components: [] });
     }
-    if (interaction.customId === 'jconfig:remove_roles' && interaction.isRoleSelectMenu()) {
+    if (interaction.customId === 'jconfig:remove_roles' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       if (!interaction.values.length) return interaction.update({ content: 'No roles selected. Nothing was changed.', embeds: [], components: [] });
       pendingRoleRemovals.set(`${interaction.guildId}:${interaction.user.id}`, interaction.values);
