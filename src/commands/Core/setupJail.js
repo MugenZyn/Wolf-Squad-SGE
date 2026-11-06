@@ -57,9 +57,12 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
     const existingJail = guildConfig?.jail ?? {};
-    const jailRoleId = selections.jailRoleId || existingJail.roles?.[0]?.roleId || null;
-    const jailRole = jailRoleId ? await guild.roles.fetch(jailRoleId).catch(() => null) : null;
-    const lawyerRoleId = selections.lawyerRoleId || existingJail.lawyerRoleId || null;
+    const oldJailRoleIds = Array.isArray(existingJail.roles) ? existingJail.roles.map(item => item?.roleId).filter(Boolean) : [];
+    const oldJailRoleId = oldJailRoleIds[0] || null;
+    let jailRoleId = selections.jailRoleId || oldJailRoleId || null;
+    let jailRole = jailRoleId ? await guild.roles.fetch(jailRoleId).catch(() => null) : null;
+    let lawyerRoleId = selections.lawyerRoleId || existingJail.lawyerRoleId || null;
+    const previousLawyerRoleId = existingJail.lawyerRoleId || null;
     const categoryId = selections.categoryId || existingJail.categoryId || null;
     const existingChannelId = selections.jailChannelId || existingJail.channelId || null;
     const requestedChannelName = null;
@@ -70,10 +73,19 @@ async function configureJail(interaction, guildConfig, selections = {}) {
 
     if ((lawyerRoleId && !ID_PATTERN.test(lawyerRoleId)) || (categoryId && !ID_PATTERN.test(categoryId)) || (existingChannelId && !ID_PATTERN.test(existingChannelId)) || (forumId && !ID_PATTERN.test(forumId))) return interaction.editReply('One of the supplied IDs is invalid.');
 
-    if (!jailRole || jailRole.guild.id !== guild.id || jailRole.id === guild.id || jailRole.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply('The jail role must be a server role, cannot be @everyone, and cannot have Administrator permission.');
-    const lawyerRole = lawyerRoleId ? await guild.roles.fetch(lawyerRoleId).catch(() => null) : null;
-    if (lawyerRoleId && (!lawyerRole || lawyerRole.id === guild.id)) return interaction.editReply('I could not find the lawyer role.');
     const botMember = guild.members.me ?? await guild.members.fetchMe();
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Roles permission to create or configure the jail roles.');
+    if (!jailRole) {
+      jailRole = guild.roles.cache.find(role => role.name === 'SGE - JAIL') || await guild.roles.create({ name: 'SGE - JAIL', reason });
+      jailRoleId = jailRole.id;
+    }
+    if (jailRole.guild.id !== guild.id || jailRole.id === guild.id || jailRole.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply('The jail role must be a server role, cannot be @everyone, and cannot have Administrator permission.');
+    let lawyerRole = lawyerRoleId ? await guild.roles.fetch(lawyerRoleId).catch(() => null) : null;
+    if (!lawyerRole) {
+      lawyerRole = guild.roles.cache.find(role => role.name === 'SGE - LAWYER') || await guild.roles.create({ name: 'SGE - LAWYER', reason });
+      lawyerRoleId = lawyerRole.id;
+    }
+    if (lawyerRole.id === guild.id) return interaction.editReply('I could not use @everyone as the lawyer role.');
     if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels) || !botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Channels and Manage Roles permissions.');
     if (botMember.roles.highest.comparePositionTo(jailRole) <= 0 || (lawyerRole && botMember.roles.highest.comparePositionTo(lawyerRole) <= 0)) return interaction.editReply('My highest role must be above both selected roles.');
 
@@ -91,7 +103,17 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (category && jailChannel && jailChannel.parentId !== category.id) {
       await jailChannel.setParent(category.id, { lockPermissions: false, reason });
     }
-    // Hide every other category from members with this jail role.
+    // When the jail role is replaced, remove only the old jail-role overwrites.
+    // Do not reset unrelated role/member permissions or recreate channels.
+    for (const oldRoleId of oldJailRoleIds) {
+      if (oldRoleId === jailRole.id) continue;
+      for (const channel of allGuildChannels.values()) {
+        if (channel.type === ChannelType.GuildCategory || channel.id === existingChannelId || channel.id === forumId) {
+          await channel.permissionOverwrites.delete(oldRoleId, reason).catch(() => null);
+        }
+      }
+    }
+    // Hide every other category from members with the current jail role.
     // This is applied only when /setup-jail is explicitly run; later staff edits remain untouched.
     const allGuildChannels = await guild.channels.fetch();
     const otherCategories = allGuildChannels.filter(channel =>
@@ -100,6 +122,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     for (const otherCategory of otherCategories.values()) {
       await otherCategory.permissionOverwrites.edit(jailRole.id, { ViewChannel: false }, reason);
     }
+    if (category) await category.permissionOverwrites.edit(jailRole.id, { ViewChannel: true }, reason);
 
     const existingRoleCount = Array.isArray(guildConfig?.jail?.roles)
       ? guildConfig.jail.roles.filter(x => x?.roleId !== jailRole.id).length
@@ -153,13 +176,16 @@ async function configureJail(interaction, guildConfig, selections = {}) {
           ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
         ],
       });
-    } else if (lawyerRole) {
-      await evidenceForum.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+    } 
+    // A lawyer-role change only touches that role's explicit access on these three resources.
+    if (previousLawyerRoleId && previousLawyerRoleId !== lawyerRole.id) {
+      for (const resource of [category, jailChannel, evidenceForum].filter(Boolean)) {
+        await resource.permissionOverwrites.delete(previousLawyerRoleId, reason).catch(() => null);
+      }
     }
-    if (category && lawyerRole) await category.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
-    if (lawyerRole) {
-      await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
-    }
+    if (category) await category.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+    await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+    await evidenceForum.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
 
     let logsChannel = null;
     const existingLogsId = guildConfig?.jail?.logsChannelId;
