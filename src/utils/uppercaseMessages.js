@@ -1,21 +1,25 @@
 const URL_PATTERN = /https?:\/\/[^\s<>]+/gi;
+const ESCAPED_SEQUENCE_PATTERN = /\\+(?:[nrtbfv0]|u[0-9a-f]{4}|x[0-9a-f]{2}|\\)/gi;
+const DISCORD_TIMESTAMP_PATTERN = /<t:\d+(?::[tTdDfFR])?>/g;
+const PRESERVED_MARKER_PATTERN = /\u0000UPPERCASE_KEEP_(\d+)\u0000/g;
 
 function uppercaseText(value) {
   const preserved = [];
-  const protectedText = value.replace(URL_PATTERN, url => {
-    const marker = `\u0000KEEP${preserved.length}\u0000`;
-    preserved.push(url);
+  const protect = token => {
+    const marker = '\u0000UPPERCASE_KEEP_' + preserved.length + '\u0000';
+    preserved.push(token);
     return marker;
-  }).replace(/\\\\n/g, escape => {
-    const marker = `\\u0000KEEP${preserved.length}\\u0000`;
-    preserved.push(escape);
-    return marker;
-  }).replace(/<t:\\\\d+(?::[tTdDfFR])?>/g, timestamp => {
-    const marker = `\u0000KEEP${preserved.length}\u0000`;
-    preserved.push(timestamp);
-    return marker;
-  });
-  return protectedText.toUpperCase().replace(/\u0000KEEP(\d+)\u0000/g, (_, index) => preserved[Number(index)]);
+  };
+
+  const protectedText = value
+    .replace(URL_PATTERN, protect)
+    .replace(ESCAPED_SEQUENCE_PATTERN, protect)
+    .replace(DISCORD_TIMESTAMP_PATTERN, protect);
+
+  return protectedText.toUpperCase().replace(
+    PRESERVED_MARKER_PATTERN,
+    (_, index) => preserved[Number(index)],
+  );
 }
 
 export function uppercaseMessagePayload(payload) {
