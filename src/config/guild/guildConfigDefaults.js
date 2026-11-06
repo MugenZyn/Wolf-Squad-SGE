@@ -22,6 +22,7 @@ export const GUILD_CONFIG_DEFAULTS = {
         channelId: null,
         categoryId: null,
         evidenceForumId: null,
+        logsChannelId: null,
         lawyerRoleId: null,
     },
 };
