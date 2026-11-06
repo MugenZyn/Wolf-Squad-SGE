@@ -34,6 +34,28 @@ function formatRoleMentions(ids, maxLength = 900) {
   return `${mentions.join(', ')}${remaining ? ` …and ${remaining} more` : ''}` || 'None';
 }
 
+function buildTextFields(name, items, formatter, emptyValue = 'None configured', maxLength = 950, separator = ', ') {
+  if (!items?.length) return [{ name, value: emptyValue, inline: false }];
+  const chunks = [];
+  let current = '';
+  for (const item of items) {
+    const rendered = String(formatter(item));
+    const next = current ? `${current}${separator}${rendered}` : rendered;
+    if (current && next.length > maxLength) {
+      chunks.push(current);
+      current = rendered;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.map((value, index) => ({
+    name: chunks.length > 1 ? `${name} (${index + 1}/${chunks.length})` : name,
+    value,
+    inline: false,
+  }));
+}
+
 function getFilteredRoleChoices(state) {
   const query = String(state?.searchQuery ?? '').trim().toLowerCase();
   return (state?.roles ?? []).filter(role => !query || role.name.toLowerCase().includes(query));
@@ -119,11 +141,13 @@ function panelPayload(jail, page = 'settings') {
         .setCustomId(`jconfig:${setting.value}`).setPlaceholder(`Change ${setting.label}`)
         .addOptions([{ label: setting.label, value: setting.value, description: setting.description }])));
   } else if (page === 'roles') {
+    const jailRoleIds = (Array.isArray(jail.roles) ? jail.roles : []).map(item => item?.roleId).filter(Boolean);
+    const policemanRoleIds = Array.isArray(jail.policemanRoleIds) ? jail.policemanRoleIds : [];
     embed.setDescription('Manage which roles are used by the jail system.')
       .addFields(
-        { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? formatRoleMentions(jail.roles.map(item => item.roleId)) : 'None configured', inline: false },
+        ...buildTextFields('Jail roles', jailRoleIds, id => `<@&${id}>`),
         { name: 'Lawyer role', value: jail.lawyerRoleId ? `<@&${jail.lawyerRoleId}>` : 'None configured', inline: true },
-        { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? formatRoleMentions(jail.policemanRoleIds) : 'None configured', inline: true },
+        ...buildTextFields('Policeman roles', policemanRoleIds, id => `<@&${id}>`),
       );
     const roleMenu = new StringSelectMenuBuilder().setCustomId('jconfig:role_action').setPlaceholder('Choose a role action')
       .addOptions(
@@ -134,6 +158,9 @@ function panelPayload(jail, page = 'settings') {
       );
     controls = [new ActionRowBuilder().addComponents(roleMenu)];
   } else if (page === 'channels') {
+    const roleChannelEntries = (Array.isArray(jail.roles) ? jail.roles : [])
+      .filter(item => item?.roleId)
+      .map(item => `<@&${item.roleId}> → ${item.channelId ? `<#${item.channelId}>` : 'Default channel'}`);
     embed.setDescription('All channel and category settings are managed here, separately from role settings.')
       .addFields(
         { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
@@ -141,7 +168,7 @@ function panelPayload(jail, page = 'settings') {
         { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
         { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
         { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
-        { name: 'Role-specific jail channels', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.slice(0, 18).map(item => `<@&${item.roleId}> → ${item.channelId ? `<#${item.channelId}>` : 'Default channel'}`).join('\\n') + (jail.roles.length > 18 ? `\\n…and ${jail.roles.length - 18} more` : '') : 'No jail roles configured', inline: false },
+        ...buildTextFields('Role-specific jail channels', roleChannelEntries, value => value, 'No jail roles configured', 950, '\\n'),
       );
     const channelMenu = new StringSelectMenuBuilder().setCustomId('jconfig:channel_action').setPlaceholder('Choose a channel setting')
       .addOptions(
@@ -201,7 +228,7 @@ async function getJailChannelOptions(guild, jail = {}) {
     const categoryOverwrite = channel.parent?.permissionOverwrites?.cache?.some(overwrite => jailRoleIds.has(overwrite.id));
     return Boolean(directOverwrite || categoryOverwrite);
   };
-  return channels.filter(channel =>
+  return [...channels.values()].filter(channel =>
     channel.type === ChannelType.GuildText && (
       configuredIds.has(channel.id) ||
       (categoryId && channel.parentId === categoryId) ||
@@ -220,21 +247,37 @@ function jailChannelMenu(roleId, page, channels) {
       value: channel.id,
       description: channel.parent?.name ? `In ${channel.parent.name}`.slice(0, 100) : 'Jail channel',
     }));
-  options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous jail channels', disabled: safePage === 0 });
-  options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more jail channels', disabled: safePage >= pageCount - 1 });
-  return new StringSelectMenuBuilder()
-    .setCustomId(`jconfig:channel:${roleId}:${safePage}`)
-    .setPlaceholder(`Choose a jail channel (page ${safePage + 1}/${pageCount})`)
-    .setMinValues(1)
-    .setMaxValues(1)
-    .addOptions(options);
+  if (!options.length) options.push({ label: 'No jail channels found', value: '__no_channels__', description: 'Set the jail category or channel permissions', disabled: true });
+  return {
+    menu: new StringSelectMenuBuilder()
+      .setCustomId(`jconfig:channel_pick:${roleId}:${safePage}`)
+      .setPlaceholder(`Choose a jail channel (page ${safePage + 1}/${pageCount})`)
+      .setMinValues(0)
+      .setMaxValues(1)
+      .addOptions(options),
+    page: safePage,
+    pageCount,
+  };
+}
+
+function jailChannelPickerComponents(roleId, picker) {
+  return [
+    new ActionRowBuilder().addComponents(picker.menu),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`jconfig:channel_page:${roleId}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(picker.page <= 0),
+      new ButtonBuilder().setCustomId(`jconfig:channel_page:${roleId}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(picker.page >= picker.pageCount - 1),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary),
+    ),
+  ];
 }
 
 const CHANNEL_PICKER_PAGE_SIZE = 23;
 
 async function getSelectableChannels(guild, type) {
   const channels = await guild.channels.fetch();
-  return channels
+  return [...channels.values()]
     .filter(channel => channel.type === type)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -504,11 +547,12 @@ export default {
       const current = await getGuildConfig(client, interaction.guildId);
       const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
       if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
-      const channelMenu = jailChannelMenu(selectedRoleId, 0, channels);
-      return interaction.editReply({ content: `Choose a jail channel for <@&${selectedRoleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`, embeds: [], components: [
-        new ActionRowBuilder().addComponents(channelMenu),
-        new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${selectedRoleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
-      ] });
+      const picker = jailChannelMenu(selectedRoleId, 0, channels);
+      return interaction.editReply({
+        content: `Choose a jail channel for <@&${selectedRoleId}>. Page ${picker.page + 1} of ${picker.pageCount} (${channels.length} available).`,
+        embeds: [],
+        components: jailChannelPickerComponents(selectedRoleId, picker),
+      });
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_role_control:')) {
       const control = interaction.customId.split(':').at(-1);
@@ -530,6 +574,34 @@ export default {
         new ActionRowBuilder().addComponents(picker.menu),
         buildRolePagerControls('jconfig:channel_role_control', state),
       ] });
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_page:')) {
+      const [, , , roleId, control] = interaction.customId.split(':');
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = current?.jail ?? {};
+      const registered = (jail.roles ?? []).some(item => item?.roleId === roleId);
+      if (!registered) return interaction.editReply({ content: 'That role is no longer registered as a jail role.', embeds: [], components: [] });
+      const channels = await getJailChannelOptions(interaction.guild, jail);
+      if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
+      const currentPage = Number(interaction.message?.components?.[0]?.components?.[0]?.customId?.split(':').at(-1) ?? 0);
+      const pageCount = Math.max(1, Math.ceil(channels.length / CONFIG_CHANNEL_ROLE_PAGE_SIZE));
+      const nextPage = Math.min(Math.max(0, currentPage + (control === 'prev' ? -1 : 1)), pageCount - 1);
+      const picker = jailChannelMenu(roleId, nextPage, channels);
+      return interaction.editReply({
+        content: `Choose a jail channel for <@&${roleId}>. Page ${picker.page + 1} of ${picker.pageCount} (${channels.length} available).`,
+        embeds: [],
+        components: jailChannelPickerComponents(roleId, picker),
+      });
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:channel_pick:')) {
+      const [, , , roleId] = interaction.customId.split(':');
+      const selectedChannelId = interaction.values[0];
+      if (!selectedChannelId || selectedChannelId === '__no_channels__') {
+        return interaction.editReply({ content: 'Select a jail channel from the list.', embeds: [], components: interaction.message.components });
+      }
+      await saveJailRoleChannel(interaction, client, roleId, selectedChannelId);
+      return true;
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_default:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
