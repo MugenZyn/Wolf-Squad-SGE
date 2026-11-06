@@ -57,6 +57,7 @@ function panelPayload(jail) {
         { label: 'Choose policeman roles', value: 'set_policeman', description: 'Select multiple roles; choose none to clear' },
         { label: 'Set a jail role channel', value: 'set_jail_channel', description: 'Choose which jail channel a specific jail role uses' },
         { label: 'Set jail/unjail announcement channel', value: 'set_action_log_channel', description: 'Choose where jail and unjail announcements are posted' },
+        { label: 'Message configuration', value: 'message_config', description: 'Edit jail and unjail announcement messages' },
         { label: 'Remove roles from jail configuration', value: 'remove_roles', description: 'Unassign jail, lawyer, or policeman roles' },
       ),
   ));
@@ -148,6 +149,19 @@ export default {
       await logConfigSave(interaction, jail, 'Jail/unjail announcement channel', `**Channel:** <#${interaction.values[0]}>`);
       return interaction.update({ content: `Saved announcement channel: <#${interaction.values[0]}>.`, embeds: [], components: [] });
     }
+    if (interaction.customId === 'jconfig:message_choice' && interaction.isStringSelectMenu()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const field = interaction.values[0];
+      const setting = SETTINGS.find(item => item.value === field);
+      if (!setting || !['jail_announcement', 'unjail_announcement'].includes(field)) return interaction.reply({ content: 'Invalid message setting.', flags: MessageFlags.Ephemeral });
+      const modal = new ModalBuilder().setCustomId(`jconfigmodal:${field}`).setTitle(`Edit ${setting.label}`);
+      const input = new TextInputBuilder().setCustomId('setting_value').setLabel('Message template')
+        .setStyle(TextInputStyle.Paragraph).setRequired(false).setMaxLength(1000)
+        .setPlaceholder('Leave empty to restore the default message');
+      modal.addComponents(new ActionRowBuilder().addComponents(input));
+      await interaction.showModal(modal);
+      return true;
+    }
     if (interaction.customId === 'jconfig:channel_role' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const roleId = interaction.values[0];
@@ -189,6 +203,31 @@ export default {
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = current?.jail ?? {};
       let menu;
+      if (action === 'message_config') {
+        const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+        const current = await getGuildConfig(client, interaction.guildId);
+        const jail = current?.jail ?? {};
+        const embed = new EmbedBuilder().setColor(0x5865F2).setTitle('Jail message configuration')
+          .setDescription('Choose which message to edit. Placeholders are replaced automatically.')
+          .addFields(
+            { name: 'Jail message', value: (jail.jailAnnouncement || '{{user}} HAS BEEN JAILED').slice(0, 1000) },
+            { name: 'Unjail message', value: (jail.unjailAnnouncement || '{{user}} HAS BEEN UNJAILED').slice(0, 1000) },
+            { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'Not configured' },
+            { name: 'Jail placeholders', value: '`{{user}}` `{{server}}` `{{moderator}}` `{{role}}` `{{reason}}` `{{duration}}`' },
+            { name: 'Unjail placeholders', value: '`{{user}}` `{{server}}` `{{moderator}}` `{{roles}}`' },
+          );
+        const menu = new StringSelectMenuBuilder().setCustomId('jconfig:message_choice').setPlaceholder('Choose a message to edit')
+          .addOptions(
+            { label: 'Jail message', value: 'jail_announcement', description: 'Customize the message when a member is jailed' },
+            { label: 'Unjail message', value: 'unjail_announcement', description: 'Customize the message when a member is released' },
+          );
+        const channel = new ChannelSelectMenuBuilder().setCustomId('jconfig:action_log_channel').setPlaceholder('Choose announcement channel')
+          .setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);
+        return interaction.update({ content: '', embeds: [embed], components: [
+          new ActionRowBuilder().addComponents(menu),
+          new ActionRowBuilder().addComponents(channel),
+        ] });
+      }
       if (action === 'set_action_log_channel') {
         const channelMenu = new ChannelSelectMenuBuilder().setCustomId('jconfig:action_log_channel').setPlaceholder('Choose announcement channel').setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);
         return interaction.update({ content: 'Choose the channel where jail and unjail announcements will be posted.', embeds: [], components: [new ActionRowBuilder().addComponents(channelMenu)] });
