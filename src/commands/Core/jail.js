@@ -184,7 +184,7 @@ export default {
             const modal = new ModalBuilder().setCustomId(`jailrolemodal:${pickerToken}`).setTitle('Search jail roles');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_query').setLabel('Role name contains').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Leave empty to show all roles')));
             await selection.showModal(modal);
-            const modalSubmit = await interaction.awaitModalSubmit({
+            const modalSubmit = await selection.awaitModalSubmit({
               time: 60000,
               filter: submit => submit.user.id === interaction.user.id && submit.customId === `jailrolemodal:${pickerToken}`,
             });
