@@ -264,7 +264,7 @@ function setupPanelText(session) {
     `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Automatic (jail)'}`,
     `Evidence forum: ${s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Automatic (jail-evidence)'}`,
     `Page: ${session.page === 'channels' ? 'Channels' : 'Roles'}`,
-  ].join('\\n');
+  ].join('\n');
 }
 
 function buildSetupPanel(token, page = 'roles') {
