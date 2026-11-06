@@ -576,7 +576,7 @@ export default {
       ] });
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_page:')) {
-      const [, , , roleId, control] = interaction.customId.split(':');
+      const [, , roleId, control] = interaction.customId.split(':');
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = current?.jail ?? {};
@@ -595,7 +595,7 @@ export default {
       });
     }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:channel_pick:')) {
-      const [, , , roleId] = interaction.customId.split(':');
+      const [, , roleId] = interaction.customId.split(':');
       const selectedChannelId = interaction.values[0];
       if (!selectedChannelId || selectedChannelId === '__no_channels__') {
         return interaction.editReply({ content: 'Select a jail channel from the list.', embeds: [], components: interaction.message.components });
