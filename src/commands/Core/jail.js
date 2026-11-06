@@ -402,7 +402,7 @@ export default {
       .setDescription(`**Reason:** ${clip(jailReason, 1800)}\n\n${addon ? `**Additional note:**\n${clip(addon, 1500)}` : 'No additional note was provided.'}`);
     if (evidence.length) {
       embed.addFields({
-        name: \`Forwarded messages (\${evidence.length}/\${evidenceLimit})\`,
+        name: 'Forwarded messages (' + evidence.length + '/' + evidenceLimit + ')',
         value: 'The original messages are forwarded individually below, including their attachments.',
       });
     } else {
