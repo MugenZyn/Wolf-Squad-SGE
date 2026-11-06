@@ -29,7 +29,7 @@ export default {
       jailChannelId: existingJail.channelId ?? null,
       evidenceForumId: existingJail.evidenceForumId ?? null,
     } });
-    const timer = setTimeout(() => setupSessions.delete(token), 24 * 60 * 60 * 1000);
+    const timer = setTimeout(() => setupSessions.delete(token), 15 * 60 * 1000);
     timer.unref?.();
     return interaction.editReply({ content: '', embeds: [setupPanelEmbed(setupSessions.get(token))], components: buildSetupPanel(token, 'roles') });
   },
@@ -54,6 +54,7 @@ export default {
     if (interaction.isButton() && field === 'save') {
       setupSessions.delete(token);
       await interaction.deferUpdate();
+      await interaction.editReply({ content: 'CREATING...', embeds: [], components: [] });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       await configureJail(interaction, await getGuildConfig(client, interaction.guildId), { ...session.existing, ...session.selections });
       return true;
