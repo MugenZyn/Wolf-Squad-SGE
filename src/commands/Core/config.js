@@ -6,14 +6,10 @@ export default {
     .setName('config')
     .setDescription('Configure jail defaults.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addSubcommand(s => s.setName('jail-duration').setDescription('Set the default jail duration.')
-      .addStringOption(o => o.setName('duration').setDescription('Default duration used by /jail.').setRequired(true)
-        .addChoices(
-          { name: 'Infinite (default)', value: 'infinite' },
-          { name: '1 hour', value: '1h' }, { name: '6 hours', value: '6h' },
-          { name: '12 hours', value: '12h' }, { name: '1 day', value: '1d' },
-          { name: '3 days', value: '3d' }, { name: '7 days', value: '7d' },
-        )))
+    .addSubcommand(s => s.setName('default-sentence').setDescription('Set the default jail sentence in seconds; leave blank for infinite.')
+      .addIntegerOption(o => o.setName('seconds').setDescription('Default sentence length in seconds. Omit for infinite.').setMinValue(1).setMaxValue(2147483647)))
+    .addSubcommand(s => s.setName('minimum-sentence').setDescription('Set the minimum allowed jail sentence in seconds.')
+      .addIntegerOption(o => o.setName('seconds').setDescription('Minimum sentence length in seconds.').setRequired(true).setMinValue(1).setMaxValue(2147483647)))
     .addSubcommand(s => s.setName('evidence-count').setDescription('Set how many recent messages are forwarded (1–5).')
       .addIntegerOption(o => o.setName('count').setDescription('Number of target messages from the channel where /jail is run.').setRequired(true).setMinValue(1).setMaxValue(5)))
     .addSubcommand(s => s.setName('default-message').setDescription('Set the default note included in evidence posts.')
@@ -24,10 +20,23 @@ export default {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
     const jail = guildConfig?.jail ?? {};
     const subcommand = interaction.options.getSubcommand();
-    if (subcommand === 'jail-duration') {
-      const duration = interaction.options.getString('duration', true);
-      await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, defaultDuration: duration } });
-      return interaction.reply({ content: `Default jail duration set to **${duration}**.`, flags: MessageFlags.Ephemeral });
+    if (subcommand === 'default-sentence') {
+      const seconds = interaction.options.getInteger('seconds');
+      const minimum = Math.max(1, Number(jail.minimumSentenceSeconds ?? 600));
+      if (seconds !== null && seconds < minimum) {
+        return interaction.reply({ content: `The default sentence cannot be below the configured minimum of ${minimum.toLocaleString()} seconds.`, flags: MessageFlags.Ephemeral });
+      }
+      await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, defaultSentenceSeconds: seconds, defaultDuration: undefined } });
+      return interaction.reply({ content: seconds === null ? 'Default jail sentence set to **Infinite**.' : `Default jail sentence set to **${seconds.toLocaleString()} seconds**.`, flags: MessageFlags.Ephemeral });
+    }
+    if (subcommand === 'minimum-sentence') {
+      const seconds = interaction.options.getInteger('seconds', true);
+      const defaultSeconds = jail.defaultSentenceSeconds;
+      if (defaultSeconds !== null && defaultSeconds !== undefined && defaultSeconds < seconds) {
+        return interaction.reply({ content: `The configured default sentence is ${defaultSeconds} seconds. Set the default to infinite or at least ${seconds} seconds first.`, flags: MessageFlags.Ephemeral });
+      }
+      await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, minimumSentenceSeconds: seconds } });
+      return interaction.reply({ content: `Minimum jail sentence set to **${seconds.toLocaleString()} seconds**.`, flags: MessageFlags.Ephemeral });
     }
     if (subcommand === 'evidence-count') {
       const count = interaction.options.getInteger('count', true);
