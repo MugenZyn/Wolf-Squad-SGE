@@ -39,7 +39,7 @@ function summarizeRoleIds(ids, label = 'configured') {
   if (!uniqueIds.length) return 'None configured';
   const preview = uniqueIds.slice(0, 10).map(id => `<@&${id}>`).join(', ');
   const remaining = uniqueIds.length - Math.min(uniqueIds.length, 10);
-  return `${uniqueIds.length} ${label}\\n${preview}${remaining ? `\\n…and ${remaining} more. Use the paginated role selector to browse all.` : ''}`;
+  return `${uniqueIds.length} ${label}\n${preview}${remaining ? `\n…and ${remaining} more. Use the paginated role selector to browse all.` : ''}`;
 }
 
 
