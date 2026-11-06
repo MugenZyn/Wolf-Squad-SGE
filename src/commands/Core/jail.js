@@ -31,7 +31,7 @@ function legacySentenceSeconds(value) {
 }
 
 function renderAnnouncement(template, values) {
-  return String(template ?? '').replace(/\\{\\{(user|server|moderator|role|reason|duration)\\}\\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
+  return String(template ?? '').replace(/\{\{(user|server|moderator|role|reason|duration)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
 }
 
 function clip(value, max = 1000) {
