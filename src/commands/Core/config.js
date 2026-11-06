@@ -9,6 +9,8 @@ const SETTINGS = [
   { label: 'Minimum sentence', value: 'minimum_seconds', description: 'Minimum jail duration in seconds' },
   { label: 'Evidence messages', value: 'evidence_count', description: 'Number of messages to forward (1–10)' },
   { label: 'Default evidence note', value: 'default_message', description: 'Text shown in evidence; CLEAR removes it' },
+  { label: 'Jail announcement', value: 'jail_announcement', description: 'Use {{user}}, {{server}}, {{moderator}}, {{role}}, {{reason}}, {{duration}}' },
+  { label: 'Unjail announcement', value: 'unjail_announcement', description: 'Use {{user}}, {{server}}, {{moderator}}, {{roles}}' },
 ];
 
 const pendingRoleRemovals = new Map();
@@ -27,6 +29,9 @@ function panelPayload(jail) {
       { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
       { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 5), inline: true },
       { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
+      { name: 'Jail announcement', value: (jail.jailAnnouncement ?? '{{user}} HAS BEEN JAILED').slice(0, 1000), inline: false },
+      { name: 'Unjail announcement', value: (jail.unjailAnnouncement ?? '{{user}} HAS BEEN UNJAILED').slice(0, 1000), inline: false },
+      { name: 'Action announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
       { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
       { name: 'Jail role → channel', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => ` <@&${item.roleId}> → ${(item.channelId || jail.channelId) ? `<#${item.channelId || jail.channelId}>` : 'No channel linked'}`).join('\n').slice(0, 1024) : 'None configured', inline: false },
       { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
@@ -51,6 +56,7 @@ function panelPayload(jail) {
         { label: 'Set lawyer role', value: 'set_lawyer', description: 'Choose an existing server role as the lawyer role' },
         { label: 'Choose policeman roles', value: 'set_policeman', description: 'Select multiple roles; choose none to clear' },
         { label: 'Set a jail role channel', value: 'set_jail_channel', description: 'Choose which jail channel a specific jail role uses' },
+        { label: 'Set jail/unjail announcement channel', value: 'set_action_log_channel', description: 'Choose where jail and unjail announcements are posted' },
         { label: 'Remove roles from jail configuration', value: 'remove_roles', description: 'Unassign jail, lawyer, or policeman roles' },
       ),
   ));
@@ -133,6 +139,15 @@ export default {
   },
 
   async handleComponent(interaction, client) {
+    if (interaction.isChannelSelectMenu() && interaction.customId === 'jconfig:action_log_channel') {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current?.jail ?? {}), actionLogChannelId: interaction.values[0] };
+      await updateGuildConfig(client, interaction.guildId, { jail });
+      await logConfigSave(interaction, jail, 'Jail/unjail announcement channel', `**Channel:** <#${interaction.values[0]}>`);
+      return interaction.update({ content: `Saved announcement channel: <#${interaction.values[0]}>.`, embeds: [], components: [] });
+    }
     if (interaction.customId === 'jconfig:channel_role' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const roleId = interaction.values[0];
@@ -174,6 +189,10 @@ export default {
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = current?.jail ?? {};
       let menu;
+      if (action === 'set_action_log_channel') {
+        const channelMenu = new ChannelSelectMenuBuilder().setCustomId('jconfig:action_log_channel').setPlaceholder('Choose announcement channel').setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);
+        return interaction.update({ content: 'Choose the channel where jail and unjail announcements will be posted.', embeds: [], components: [new ActionRowBuilder().addComponents(channelMenu)] });
+      }
       if (action === 'set_policeman' || action === 'add_jail_roles' || action === 'set_lawyer') {
         // These are explicit role-registration steps; only the selected role type is updated.
         menu = new RoleSelectMenuBuilder()
@@ -375,10 +394,10 @@ export default {
         .setTitle(`Change ${setting.label}`);
       const input = new TextInputBuilder()
         .setCustomId('setting_value')
-        .setLabel(field === 'default_seconds' ? 'Seconds, or INFINITE' : field === 'default_message' ? 'Message text (or CLEAR)' : 'Value')
-        .setStyle(field === 'default_message' ? TextInputStyle.Paragraph : TextInputStyle.Short)
-        .setRequired(field !== 'default_message')
-        .setMaxLength(field === 'default_message' ? 1000 : 20);
+        .setLabel(field === 'default_seconds' ? 'Seconds, or INFINITE' : field === 'default_message' ? 'Message text (or CLEAR)' : 'Announcement template')
+        .setStyle(['default_message', 'jail_announcement', 'unjail_announcement'].includes(field) ? TextInputStyle.Paragraph : TextInputStyle.Short)
+        .setRequired(!['default_message', 'jail_announcement', 'unjail_announcement'].includes(field))
+        .setMaxLength(['default_message', 'jail_announcement', 'unjail_announcement'].includes(field) ? 1000 : 20);
       modal.addComponents(new ActionRowBuilder().addComponents(input));
       await interaction.showModal(modal);
       return true;
@@ -411,12 +430,16 @@ export default {
         jail.evidenceMessageCount = Number(raw);
       } else if (field === 'default_message') {
         jail.defaultMessage = raw.toUpperCase() === 'CLEAR' ? '' : raw;
+      } else if (field === 'jail_announcement') {
+        jail.jailAnnouncement = raw || '{{user}} HAS BEEN JAILED';
+      } else if (field === 'unjail_announcement') {
+        jail.unjailAnnouncement = raw || '{{user}} HAS BEEN UNJAILED';
       } else {
         return interaction.reply({ content: 'Unknown setting.', flags: MessageFlags.Ephemeral });
       }
       if (field === 'default_seconds') jail.defaultDuration = undefined;
       await updateGuildConfig(client, interaction.guildId, { jail });
-      await logConfigSave(interaction, jail, SETTINGS.find(s => s.value === field).label, `**New value:** ${field === 'default_message' ? (jail.defaultMessage || 'None') : field === 'default_seconds' ? formatDuration(jail.defaultSentenceSeconds) : field === 'minimum_seconds' ? formatDuration(jail.minimumSentenceSeconds) : jail.evidenceMessageCount}`);
+      await logConfigSave(interaction, jail, SETTINGS.find(s => s.value === field).label, `**New value:** ${field === 'default_message' ? (jail.defaultMessage || 'None') : field === 'default_seconds' ? formatDuration(jail.defaultSentenceSeconds) : field === 'minimum_seconds' ? formatDuration(jail.minimumSentenceSeconds) : field === 'jail_announcement' ? jail.jailAnnouncement : field === 'unjail_announcement' ? jail.unjailAnnouncement : jail.evidenceMessageCount}`);
       return interaction.reply({ content: `Saved **${SETTINGS.find(s => s.value === field).label}**.`, flags: MessageFlags.Ephemeral });
     }
     return false;
