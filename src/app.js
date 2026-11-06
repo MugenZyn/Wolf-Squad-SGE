@@ -6,15 +6,27 @@ const root = process.cwd();
 console.log('[git-sync] Checking GitHub for updates on origin/newmain...');
 
 const pullCode = await new Promise(resolve => {
-  const pull = spawn('git', ['pull', '--ff-only', 'origin', 'newmain'], {
+  const pull = spawn('git', ['pull', '--quiet', '--ff-only', 'origin', 'newmain'], {
     cwd: root,
-    stdio: 'inherit',
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
+
+  let pullError = '';
+  pull.stderr.setEncoding('utf8');
+  pull.stderr.on('data', chunk => {
+    pullError += chunk;
+  });
+
   pull.on('error', error => {
     console.error('[git-sync] Could not run git pull; starting the currently installed files:', error.message);
     resolve(null);
   });
-  pull.on('close', code => resolve(code));
+  pull.on('close', code => {
+    if (code !== 0 && pullError.trim()) {
+      console.error('[git-sync] Git pull error:', pullError.trim());
+    }
+    resolve(code);
+  });
 });
 
 if (pullCode !== 0) {
