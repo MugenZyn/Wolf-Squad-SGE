@@ -347,7 +347,7 @@ function setupPanelEmbed(session) {
       { name: 'Category', value: s.categoryId ? `<#${s.categoryId}>` : 'Create automatically (JAIL)', inline: true },
       { name: 'Default jail channel', value: s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create automatically (jail)', inline: true },
       { name: 'Evidence forum', value: s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create automatically (jail-evidence)', inline: true },
-      { name: 'Announcement channel', value: s.actionLogChannelId ? `<#${s.actionLogChannelId}>` : 'Optional (not set)', inline: true },
+      { name: 'Announcement channel', value: (s.actionLogChannelId ?? session.existing.actionLogChannelId) ? `<#${s.actionLogChannelId ?? session.existing.actionLogChannelId}>` : 'Optional (not set)', inline: true },
       ...(session.page === 'channels' ? [{ name: 'Channel permissions', value: s.managePermissions === false ? 'Leave existing permissions unchanged' : 'Bot configures jail permissions', inline: false }] : []),
       { name: 'Current page', value: session.page === 'channels' ? 'Channels' : 'Roles', inline: true },
     );
