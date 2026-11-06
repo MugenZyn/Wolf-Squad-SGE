@@ -443,27 +443,14 @@ function formatRoleMentions(ids, maxLength = 950) {
   return `${mentions.join(', ')}${remaining ? ` …and ${remaining} more` : ''}` || 'None';
 }
 
-function buildTextFields(name, items, formatter, emptyValue = 'None', maxLength = 950, separator = ', ') {
-  if (!items?.length) return [{ name, value: emptyValue, inline: false }];
-  const chunks = [];
-  let current = '';
-  for (const item of items) {
-    const rendered = String(formatter(item));
-    const next = current ? `${current}${separator}${rendered}` : rendered;
-    if (current && next.length > maxLength) {
-      chunks.push(current);
-      current = rendered;
-    } else {
-      current = next;
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks.map((value, index) => ({
-    name: chunks.length > 1 ? `${name} (${index + 1}/${chunks.length})` : name,
-    value,
-    inline: false,
-  }));
+function summarizeSetupRoleIds(ids, automaticLabel = 'None') {
+  const uniqueIds = [...new Set((ids ?? []).filter(Boolean))];
+  if (!uniqueIds.length) return automaticLabel;
+  const preview = uniqueIds.slice(0, 10).map(id => `<@&${id}>`).join(', ');
+  const remaining = uniqueIds.length - Math.min(uniqueIds.length, 10);
+  return `${uniqueIds.length} selected\\n${preview}${remaining ? `\\n…and ${remaining} more. Use the paginated role selector to browse all.` : ''}`;
 }
+
 
 function setupPanelEmbed(session) {
   const s = session.selections;
@@ -477,11 +464,11 @@ function setupPanelEmbed(session) {
       ? (session.selections.managePermissions === false
         ? 'Choose your existing jail channels. Permission edits are disabled: existing channel permissions and channel placement will be left unchanged. Make sure the bot already has access.'
         : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. The announcement channel is optional. Skip permission edits is available only after explicitly selecting an existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.')
-      : 'Choose the roles used by the jail system. Jail and lawyer roles are created automatically if left empty.')
+      : 'Choose the roles used by the jail system. Role selectors are paginated and searchable. Jail and lawyer roles are created automatically if left empty.')
     .addFields(
-      ...buildTextFields('Jail roles', jailRoleIds, id => `<@&${id}>`, 'Automatic (SGE - JAIL)'),
+      { name: 'Jail roles', value: summarizeSetupRoleIds(jailRoleIds, 'Automatic (SGE - JAIL)'), inline: false },
       { name: 'Lawyer role', value: lawyerRoleId ? `<@&${lawyerRoleId}>` : 'Automatic (SGE - LAWYER)', inline: true },
-      ...buildTextFields('Policeman roles', policemanRoleIds, id => `<@&${id}>`, 'None'),
+      { name: 'Policeman roles', value: summarizeSetupRoleIds(policemanRoleIds), inline: false },
       { name: 'Category', value: s.categoryId ? `<#${s.categoryId}>` : 'Create automatically (JAIL)', inline: true },
       { name: 'Default jail channel', value: s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create automatically (jail)', inline: true },
       { name: 'Evidence forum', value: s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create automatically (jail-evidence)', inline: true },
