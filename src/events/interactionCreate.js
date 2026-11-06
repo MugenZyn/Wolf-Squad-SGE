@@ -34,6 +34,13 @@ export default {
     }
 
     try {
+      // /setup-jail loads its own configuration after acknowledging the interaction.
+      // Skip the generic pre-command config read so the setup panel is not delayed or timed out.
+      if (interaction.commandName === 'setup-jail') {
+        await command.execute(interaction, null, client);
+        return;
+      }
+
       const guildConfig = interaction.guild
         ? await getGuildConfig(client, interaction.guild.id)
         : null;
