@@ -34,27 +34,14 @@ function formatRoleMentions(ids, maxLength = 900) {
   return `${mentions.join(', ')}${remaining ? ` …and ${remaining} more` : ''}` || 'None';
 }
 
-function buildTextFields(name, items, formatter, emptyValue = 'None configured', maxLength = 950, separator = ', ') {
-  if (!items?.length) return [{ name, value: emptyValue, inline: false }];
-  const chunks = [];
-  let current = '';
-  for (const item of items) {
-    const rendered = String(formatter(item));
-    const next = current ? `${current}${separator}${rendered}` : rendered;
-    if (current && next.length > maxLength) {
-      chunks.push(current);
-      current = rendered;
-    } else {
-      current = next;
-    }
-  }
-  if (current) chunks.push(current);
-  return chunks.map((value, index) => ({
-    name: chunks.length > 1 ? `${name} (${index + 1}/${chunks.length})` : name,
-    value,
-    inline: false,
-  }));
+function summarizeRoleIds(ids, label = 'configured') {
+  const uniqueIds = [...new Set((ids ?? []).filter(Boolean))];
+  if (!uniqueIds.length) return 'None configured';
+  const preview = uniqueIds.slice(0, 10).map(id => `<@&${id}>`).join(', ');
+  const remaining = uniqueIds.length - Math.min(uniqueIds.length, 10);
+  return `${uniqueIds.length} ${label}\\n${preview}${remaining ? `\\n…and ${remaining} more. Use the paginated role selector to browse all.` : ''}`;
 }
+
 
 function getFilteredRoleChoices(state) {
   const query = String(state?.searchQuery ?? '').trim().toLowerCase();
@@ -143,11 +130,11 @@ function panelPayload(jail, page = 'settings') {
   } else if (page === 'roles') {
     const jailRoleIds = (Array.isArray(jail.roles) ? jail.roles : []).map(item => item?.roleId).filter(Boolean);
     const policemanRoleIds = Array.isArray(jail.policemanRoleIds) ? jail.policemanRoleIds : [];
-    embed.setDescription('Manage which roles are used by the jail system.')
+    embed.setDescription('Manage which roles are used by the jail system. Role pickers are paginated and searchable.')
       .addFields(
-        ...buildTextFields('Jail roles', jailRoleIds, id => `<@&${id}>`),
+        { name: 'Jail roles', value: summarizeRoleIds(jailRoleIds), inline: false },
         { name: 'Lawyer role', value: jail.lawyerRoleId ? `<@&${jail.lawyerRoleId}>` : 'None configured', inline: true },
-        ...buildTextFields('Policeman roles', policemanRoleIds, id => `<@&${id}>`),
+        { name: 'Policeman roles', value: summarizeRoleIds(policemanRoleIds), inline: false },
       );
     const roleMenu = new StringSelectMenuBuilder().setCustomId('jconfig:role_action').setPlaceholder('Choose a role action')
       .addOptions(
@@ -158,9 +145,7 @@ function panelPayload(jail, page = 'settings') {
       );
     controls = [new ActionRowBuilder().addComponents(roleMenu)];
   } else if (page === 'channels') {
-    const roleChannelEntries = (Array.isArray(jail.roles) ? jail.roles : [])
-      .filter(item => item?.roleId)
-      .map(item => `<@&${item.roleId}> → ${item.channelId ? `<#${item.channelId}>` : 'Default channel'}`);
+    const roleChannelCount = (Array.isArray(jail.roles) ? jail.roles : []).filter(item => item?.roleId && item?.channelId).length;
     embed.setDescription('All channel and category settings are managed here, separately from role settings.')
       .addFields(
         { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
@@ -168,7 +153,7 @@ function panelPayload(jail, page = 'settings') {
         { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
         { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
         { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
-        ...buildTextFields('Role-specific jail channels', roleChannelEntries, value => value, 'No jail roles configured', 950, '\\n'),
+        { name: 'Role-specific jail channels', value: roleChannelCount ? `${roleChannelCount} role-specific channel assignment(s). Use the paginated role selector to browse or search all jail roles.` : 'No role-specific jail channels configured', inline: false },
       );
     const channelMenu = new StringSelectMenuBuilder().setCustomId('jconfig:channel_action').setPlaceholder('Choose a channel setting')
       .addOptions(
