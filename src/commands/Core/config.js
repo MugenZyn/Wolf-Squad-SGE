@@ -101,7 +101,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
       const effectiveChannelId = configured?.channelId || defaultChannelId;
       const canView = effectiveChannelId === channel.id;
       await channel.permissionOverwrites.edit(configuredRoleId, canView
-        ? { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }
+        ? { ViewChannel: true, SendMessages: true, ReadMessageHistory: true, EmbedLinks: false }
         : { ViewChannel: false }, 'Update jail role channel from /config');
     }
   }
@@ -259,7 +259,7 @@ export default {
         if (!resource?.permissionOverwrites) continue;
         for (const role of roles) {
           await resource.permissionOverwrites.edit(role.id, resourceId === channelId
-            ? { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }
+            ? { ViewChannel: true, SendMessages: true, ReadMessageHistory: true, EmbedLinks: false }
             : { ViewChannel: true, ReadMessageHistory: true }, 'Register jail role from /config');
         }
       }
