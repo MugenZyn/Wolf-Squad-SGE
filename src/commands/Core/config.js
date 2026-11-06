@@ -58,6 +58,22 @@ function panelPayload(jail) {
 }
 
 
+async function logConfigSave(interaction, jail, title, details) {
+  const logsChannelId = jail?.logsChannelId;
+  if (!logsChannelId) return;
+  const logsChannel = await interaction.guild.channels.fetch(logsChannelId).catch(() => null);
+  if (!logsChannel?.isTextBased?.() || !logsChannel.send) return;
+  await logsChannel.send({
+    embeds: [{
+      color: 0x5865F2,
+      title: `Configuration saved: ${title}`,
+      description: `**Staff:** <@${interaction.user.id}> (${interaction.user.id})\n${details}`,
+      timestamp: new Date().toISOString(),
+    }],
+    allowedMentions: { parse: [] },
+  }).catch(() => null);
+}
+
 async function saveJailRoleChannel(interaction, client, roleId, channelId) {
   const { getGuildConfig } = await import('../../services/config/guildConfig.js');
   const current = await getGuildConfig(client, interaction.guildId);
@@ -90,6 +106,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
     }
   }
   await updateGuildConfig(client, interaction.guildId, { jail });
+  await logConfigSave(interaction, jail, 'Jail role channel', `**Role:** <@&${roleId}>\n**Channel:** ${channelId ? `<#${channelId}>` : 'Default jail channel'}`);
   return interaction.update({
     content: channelId
       ? `Saved: <@&${roleId}> now uses <#${channelId}>. Other configured jail roles are denied access to that role-specific channel.`
@@ -247,6 +264,7 @@ export default {
         }
       }
       await updateGuildConfig(client, interaction.guildId, { jail });
+      await logConfigSave(interaction, jail, 'Jail roles added', `**Roles:** ${roles.map(role => `<@&${role.id}>`).join(', ')}`);
       return interaction.update({ content: `Registered ${roles.length} jail role(s): ${roles.map(role => `<@&${role.id}>`).join(', ')}. They use the default jail channel ${channelId ? `<#${channelId}>` : '(not configured)'} unless assigned a role-specific channel.`, embeds: [], components: [] });
     }
     if (interaction.customId === 'jconfig:lawyer_role' && interaction.isRoleSelectMenu()) {
@@ -275,6 +293,7 @@ export default {
         if (resource?.permissionOverwrites) await resource.permissionOverwrites.edit(role.id, { ViewChannel: true, ReadMessageHistory: true }, 'Configure lawyer role from /config');
       }
       await updateGuildConfig(client, interaction.guildId, { jail });
+      await logConfigSave(interaction, jail, 'Lawyer role', `**Role:** <@&${role.id}>`);
       return interaction.update({ content: `Saved lawyer role: <@&${role.id}>. It can view the configured jail category, jail channel, and evidence forum.`, embeds: [], components: [] });
     }
     if (interaction.customId === 'jconfig:policeman_roles' && interaction.isRoleSelectMenu()) {
@@ -284,6 +303,7 @@ export default {
       const roleIds = interaction.values;
       const jail = { ...(current.jail ?? {}), policemanRoleIds: roleIds };
       await updateGuildConfig(client, interaction.guildId, { jail });
+      await logConfigSave(interaction, jail, 'Policeman roles', `**Roles:** ${roleIds.length ? roleIds.map(id => `<@&${id}>`).join(', ') : 'None'}`);
       return interaction.update({ content: `Saved ${roleIds.length} policeman role(s): ${roleIds.length ? roleIds.map(id => `<@&${id}>`).join(', ') : 'None'}.`, embeds: [], components: [] });
     }
     if (interaction.customId === 'jconfig:remove_roles' && interaction.isStringSelectMenu()) {
@@ -338,6 +358,7 @@ export default {
       }
       for (const role of rolesToDelete) await role.delete('Role removed from jail configuration by an administrator');
       await updateGuildConfig(client, interaction.guildId, { jail });
+      await logConfigSave(interaction, jail, 'Roles removed', `**Roles:** ${removable.map(id => `<@&${id}>`).join(', ')}\n**Discord roles deleted:** ${interaction.customId === 'jconfig:remove_delete' ? 'Yes, where permitted' : 'No'}`);
       pendingRoleRemovals.delete(key);
       return interaction.update({ content: `Removed ${removable.length} role(s) from jail configuration${interaction.customId === 'jconfig:remove_delete' ? ' and deleted the Discord roles where permitted' : ''}.`, embeds: [], components: [] });
     }
@@ -395,6 +416,7 @@ export default {
       }
       if (field === 'default_seconds') jail.defaultDuration = undefined;
       await updateGuildConfig(client, interaction.guildId, { jail });
+      await logConfigSave(interaction, jail, SETTINGS.find(s => s.value === field).label, `**New value:** ${field === 'default_message' ? (jail.defaultMessage || 'None') : field === 'default_seconds' ? formatDuration(jail.defaultSentenceSeconds) : field === 'minimum_seconds' ? formatDuration(jail.minimumSentenceSeconds) : jail.evidenceMessageCount}`);
       return interaction.reply({ content: `Saved **${SETTINGS.find(s => s.value === field).label}**.`, flags: MessageFlags.Ephemeral });
     }
     return false;
