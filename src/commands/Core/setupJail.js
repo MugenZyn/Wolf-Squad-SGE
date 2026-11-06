@@ -29,7 +29,7 @@ export default {
       jailChannelId: existingJail.channelId ?? null,
       evidenceForumId: existingJail.evidenceForumId ?? null,
     } });
-    const timer = setTimeout(() => setupSessions.delete(token), 15 * 60 * 1000);
+    const timer = setTimeout(() => setupSessions.delete(token), 24 * 60 * 60 * 1000);
     timer.unref?.();
     return interaction.editReply({ content: '', embeds: [setupPanelEmbed(setupSessions.get(token))], components: buildSetupPanel(token, 'roles') });
   },
