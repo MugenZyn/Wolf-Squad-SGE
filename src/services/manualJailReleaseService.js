@@ -2,6 +2,23 @@ import { cancelJailRelease, scheduleJailRelease } from './jailReleaseService.js'
 import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
 import { consumeExpectedJailRoleRemoval } from './jailRoleUpdateGuard.js';
 
+function chunkListItems(items, maxLength = 1600, separator = ', ') {
+  const chunks = [];
+  let current = '';
+  for (const item of items ?? []) {
+    const rendered = String(item);
+    const next = current ? current + separator + rendered : rendered;
+    if (current && next.length > maxLength) {
+      chunks.push(current);
+      current = rendered;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 export async function handleJailRoleRemoval(oldMember, newMember, client) {
   if (!oldMember?.guild || !newMember?.guild || oldMember.id !== newMember.id) return false;
 
@@ -75,32 +92,50 @@ export async function handleJailRoleRemoval(oldMember, newMember, client) {
     if (thread.archived && typeof thread.setArchived === 'function') {
       await thread.setArchived(false, 'Record manual jail-role removal').catch(() => null);
     }
-    await thread.send({
+    const roleNameChunks = chunkListItems(roleNames);
+    const roleSummary = !roleNames.length
+      ? '**Jail role(s):** Configured jail role'
+      : roleNameChunks.length === 1
+        ? '**Jail role(s):** ' + roleNameChunks[0]
+        : '**Jail role(s):** ' + roleNames.length + ' roles. The complete list follows.';
+    const posted = await thread.send({
       content: [
         'MEMBER UNJAILED',
         'ALL ACTIVE JAIL ROLES WERE REMOVED OUTSIDE THE BOT.',
-        `**Jail role(s):** ${roleNames.join(', ') || 'Configured jail role'}`,
-        `**Recorded at:** <t:${Math.floor(now / 1000)}:F>`,
+        roleSummary,
+        '**Recorded at:** <t:' + Math.floor(now / 1000) + ':F>',
       ].join('\n'),
       allowedMentions: { parse: [] },
-    }).catch(error => {
-      console.error(`Could not post manual unjail record in evidence thread ${threadId}:`, error);
+    }).then(() => true).catch(error => {
+      console.error('Could not post manual unjail record in evidence thread ' + threadId + ':', error);
+      return false;
     });
+    if (posted && roleNameChunks.length > 1) {
+      for (let index = 0; index < roleNameChunks.length; index++) {
+        await thread.send({
+          content: '**Jail roles removed manually (' + (index + 1) + '/' + roleNameChunks.length + '):**\n' + roleNameChunks[index],
+          allowedMentions: { parse: [] },
+        }).catch(error => {
+          console.error('Could not post manual unjail role list in evidence thread ' + threadId + ':', error);
+        });
+      }
+    }
   }
 
   const logsChannel = jail.logsChannelId
     ? await newMember.guild.channels.fetch(jail.logsChannelId).catch(() => null)
     : null;
   if (logsChannel?.isTextBased?.() && typeof logsChannel.send === 'function') {
+    const roleNameChunks = chunkListItems(roleNames);
     await logsChannel.send({
       embeds: [{
         color: 0x2B8A3E,
         title: 'Member unjailed — roles removed manually',
         description: [
-          `**User:** <@${newMember.id}> (${newMember.id})`,
-          `**Jail role(s):** ${roleNames.join(', ') || 'Configured jail role'}`,
+          '**User:** <@' + newMember.id + '> (' + newMember.id + ')',
+          '**Jail roles removed:** ' + (roleNames.length || 'Configured'),
           '**Details:** All configured/active jail roles were removed outside the bot.',
-          `**Time:** <t:${Math.floor(now / 1000)}:F>`,
+          '**Time:** <t:' + Math.floor(now / 1000) + ':F>',
           '**Sentence timer:** Cancelled',
         ].join('\n'),
         timestamp: new Date(now).toISOString(),
@@ -109,6 +144,14 @@ export async function handleJailRoleRemoval(oldMember, newMember, client) {
     }).catch(error => {
       console.error('Could not write manual unjail record to the logs channel:', error);
     });
+    for (let index = 0; index < roleNameChunks.length; index++) {
+      await logsChannel.send({
+        content: '**Jail roles removed manually (' + (index + 1) + '/' + roleNameChunks.length + '):**\n' + roleNameChunks[index],
+        allowedMentions: { parse: [] },
+      }).catch(error => {
+        console.error('Could not post manual unjail role list to the logs channel:', error);
+      });
+    }
   }
 
   return true;
