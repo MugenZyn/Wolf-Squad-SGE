@@ -1,5 +1,4 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
 
 function formatSentence(seconds) {
   if (seconds === null || seconds === undefined) return 'Infinite';
@@ -27,8 +26,13 @@ export default {
     if (!interaction.inGuild() || !interaction.guild) {
       return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
     }
-    if (!memberHasModerationCommandAccess(interaction.member, guildConfig, PermissionFlagsBits.ManageMessages)) {
-      return interaction.reply({ content: 'You need Administrator, Manage Messages, or the configured moderator role to view jail history.', flags: MessageFlags.Ephemeral });
+    const policemanRoleIds = Array.isArray(guildConfig?.jail?.policemanRoleIds)
+      ? guildConfig.jail.policemanRoleIds
+      : [];
+    const isPoliceman = policemanRoleIds.some(roleId => interaction.member?.roles?.cache?.has(roleId));
+
+    if (!isPoliceman) {
+      return interaction.reply({ content: 'You need a configured policeman role to view jail history.', flags: MessageFlags.Ephemeral });
     }
 
     const user = interaction.options.getUser('user', true);
