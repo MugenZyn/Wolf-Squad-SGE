@@ -1,35 +1,59 @@
-import { ChannelType, PermissionFlagsBits, SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ChannelSelectMenuBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 
 const ID_PATTERN = /^\d{17,20}$/;
 const JAIL_ALLOW = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
 
 export default {
-  data: new SlashCommandBuilder()
-    .setName('setup-jail')
-    .setDescription('Create or configure a jail channel and evidence forum.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addRoleOption(o => o.setName('jail_role').setDescription('Select the role allowed to use the jail channel.').setRequired(true))
-    .addStringOption(o => o.setName('channel_name').setDescription('Name for a new jail channel.').setMaxLength(100))
-    .addStringOption(o => o.setName('jail_channel_id').setDescription('Use an existing text channel as the jail channel.').setMinLength(17).setMaxLength(20))
-    .addStringOption(o => o.setName('category_name').setDescription('Name for a new category (when creating a channel).').setMaxLength(100))
-    .addStringOption(o => o.setName('category_id').setDescription('Existing category ID.').setMinLength(17).setMaxLength(20))
-    .addStringOption(o => o.setName('lawyer_role_id').setDescription('Optional role allowed to view the jail category and evidence forum.').setMinLength(17).setMaxLength(20))
-    .addStringOption(o => o.setName('evidence_forum_id').setDescription('Use an existing forum channel.').setMinLength(17).setMaxLength(20))
-    .addStringOption(o => o.setName('evidence_forum_name').setDescription('Name for a new evidence forum.').setMaxLength(100)),
+  data: new SlashCommandBuilder().setName('setup-jail').setDescription('Open the interactive jail setup panel.').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  async execute(interaction, guildConfig) {
+  async execute(interaction) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
+    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, selections: {} });
+    const timer = setTimeout(() => setupSessions.delete(token), 15 * 60 * 1000);
+    timer.unref?.();
+    return interaction.reply({ content: setupPanelText(setupSessions.get(token)), components: buildSetupPanel(token), flags: MessageFlags.Ephemeral });
+  },
+
+  async handleComponent(interaction, client) {
+    const [, token, field] = interaction.customId.split(':');
+    const session = setupSessions.get(token);
+    if (!session || session.userId !== interaction.user.id || session.guildId !== interaction.guildId) {
+      await interaction.reply({ content: 'This setup panel expired. Run /setup-jail again.', flags: MessageFlags.Ephemeral });
+      return true;
+    }
+    if (interaction.isButton() && field === 'save') {
+      if (!session.selections.jailRoleId) {
+        await interaction.reply({ content: 'Select a jail role before saving.', flags: MessageFlags.Ephemeral });
+        return true;
+      }
+      setupSessions.delete(token);
+      await interaction.deferUpdate();
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      await configureJail(interaction, await getGuildConfig(client, interaction.guildId), session.selections);
+      return true;
+    }
+    if (interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu()) {
+      session.selections[field] = interaction.values[0] || null;
+      await interaction.update({ content: setupPanelText(session), components: buildSetupPanel(token) });
+      return true;
+    }
+    return false;
+  },
+
+async function configureJail(interaction, guildConfig, selections = {}) {
+    if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
-    const jailRole = interaction.options.getRole('jail_role', true);
-    const lawyerRoleId = interaction.options.getString('lawyer_role_id')?.trim() || null;
-    const categoryId = interaction.options.getString('category_id')?.trim();
-    const existingChannelId = interaction.options.getString('jail_channel_id')?.trim();
-    const requestedChannelName = interaction.options.getString('channel_name')?.trim();
-    const categoryName = interaction.options.getString('category_name')?.trim();
-    const forumId = interaction.options.getString('evidence_forum_id')?.trim();
-    const forumName = (interaction.options.getString('evidence_forum_name') || 'jail-evidence').trim().toLowerCase().replace(/\s+/g, '-');
+    const jailRole = await guild.roles.fetch(selections.jailRoleId).catch(() => null);
+    const lawyerRoleId = selections.lawyerRoleId || null;
+    const categoryId = selections.categoryId || null;
+    const existingChannelId = selections.jailChannelId || null;
+    const requestedChannelName = null;
+    const categoryName = null;
+    const forumId = selections.evidenceForumId || null;
+    const forumName = 'jail-evidence';
     const reason = `Jail setup requested by ${user.tag} (${user.id})`;
 
     if ((lawyerRoleId && !ID_PATTERN.test(lawyerRoleId)) || (categoryId && !ID_PATTERN.test(categoryId)) || (existingChannelId && !ID_PATTERN.test(existingChannelId)) || (forumId && !ID_PATTERN.test(forumId))) return interaction.editReply('One of the supplied IDs is invalid.');
@@ -172,5 +196,30 @@ export default {
       lawyerRole ? `Lawyer role can view the entire jail category and evidence forum: <@&${lawyerRole.id}>` : 'No lawyer role configured.',
       'Setup applies permissions once. Later manual staff changes are not automatically synchronized or repaired.'
     ].join('\n'));
-  },
-};
+}
+
+const setupSessions = new Map();
+
+function setupPanelText(session) {
+  const s = session.selections;
+  return [
+    '**Jail setup** — choose the resources below, then press Save.',
+    `Jail role: ${s.jailRoleId ? `<@&${s.jailRoleId}>` : 'Not selected (required)'}`,
+    `Lawyer role: ${s.lawyerRoleId ? `<@&${s.lawyerRoleId}>` : 'None'}`,
+    `Category: ${s.categoryId ? `<#${s.categoryId}>` : 'Create default JAIL category'}`,
+    `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create default jail channel'}`,
+    `Evidence forum: ${s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create default jail-evidence forum'}`,
+    'Selections are only applied when you save.'
+  ].join('\\n');
+}
+
+function buildSetupPanel(token) {
+  return [
+    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleId`).setPlaceholder('1. Select required jail role').setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('2. Select optional lawyer role').setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:categoryId`).setPlaceholder('3. Select existing category').setChannelTypes(ChannelType.GuildCategory).setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('4. Select existing jail channel').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('5. Select existing evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
+    new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success)),
+  ];
+}
