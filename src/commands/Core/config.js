@@ -47,6 +47,8 @@ function panelPayload(jail) {
       .setCustomId('jconfig:role_action')
       .setPlaceholder('Manage configured roles')
       .addOptions(
+        { label: 'Add jail roles', value: 'add_jail_roles', description: 'Register existing server roles as jail roles' },
+        { label: 'Set lawyer role', value: 'set_lawyer', description: 'Choose an existing server role as the lawyer role' },
         { label: 'Choose policeman roles', value: 'set_policeman', description: 'Select multiple roles; choose none to clear' },
         { label: 'Set a jail role channel', value: 'set_jail_channel', description: 'Choose which jail channel a specific jail role uses' },
         { label: 'Remove roles from jail configuration', value: 'remove_roles', description: 'Unassign jail, lawyer, or policeman roles' },
@@ -155,13 +157,13 @@ export default {
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = current?.jail ?? {};
       let menu;
-      if (action === 'set_policeman') {
-        // This is the assignment step, so administrators may choose any server role.
+      if (action === 'set_policeman' || action === 'add_jail_roles' || action === 'set_lawyer') {
+        // These are explicit role-registration steps; only the selected role type is updated.
         menu = new RoleSelectMenuBuilder()
-          .setCustomId('jconfig:policeman_roles')
-          .setMinValues(0)
-          .setMaxValues(25)
-          .setPlaceholder('Choose policeman roles (multiple allowed)');
+          .setCustomId(action === 'set_policeman' ? 'jconfig:policeman_roles' : action === 'add_jail_roles' ? 'jconfig:add_jail_roles' : 'jconfig:lawyer_role')
+          .setMinValues(action === 'set_lawyer' ? 1 : action === 'add_jail_roles' ? 1 : 0)
+          .setMaxValues(action === 'set_lawyer' ? 1 : action === 'add_jail_roles' ? 25 : 25)
+          .setPlaceholder(action === 'set_policeman' ? 'Choose policeman roles (multiple allowed)' : action === 'add_jail_roles' ? 'Choose jail roles to register' : 'Choose the lawyer role');
       } else {
         const configuredIds = action === 'set_jail_channel'
           ? [...new Set((jail.roles ?? []).map(item => item?.roleId).filter(Boolean))]
@@ -198,12 +200,82 @@ export default {
       return interaction.update({
         content: action === 'set_policeman'
           ? 'Select the policeman roles to authorize. Select none and submit to clear all policeman roles; no role will be created.'
-          : action === 'set_jail_channel'
-            ? 'Select a jail role that is already registered in the jail configuration.'
-            : 'Select only from roles already configured as jail, lawyer, or policeman roles.',
+          : action === 'add_jail_roles'
+            ? 'Select existing server roles to register as jail roles. They will use the default jail channel unless you assign a different channel afterward.'
+            : action === 'set_lawyer'
+              ? 'Select one existing server role to use as the lawyer role.'
+              : action === 'set_jail_channel'
+                ? 'Select a jail role that is already registered in the jail configuration.'
+                : 'Select only from roles already configured as jail, lawyer, or policeman roles.',
         embeds: [],
         components: [new ActionRowBuilder().addComponents(menu)],
       });
+    }
+    if (interaction.customId === 'jconfig:add_jail_roles' && interaction.isRoleSelectMenu()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current?.jail ?? {}) };
+      const existing = Array.isArray(jail.roles) ? [...jail.roles] : [];
+      const selectedIds = [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
+      if (!selectedIds.length) return interaction.update({ content: 'No jail roles selected. Nothing was changed.', embeds: [], components: [] });
+      const combined = new Set([...existing.map(item => item?.roleId).filter(Boolean), ...selectedIds]);
+      if (combined.size > 25) return interaction.update({ content: 'You can configure up to 25 jail roles. Remove some before adding more.', embeds: [], components: [] });
+      const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
+      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.update({ content: 'I need Manage Roles permission to configure jail roles.', embeds: [], components: [] });
+      const roles = (await Promise.all(selectedIds.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
+      if (roles.length !== selectedIds.length || roles.some(role => role.managed || role.permissions.has(PermissionFlagsBits.Administrator) || botMember.roles.highest.comparePositionTo(role) <= 0)) {
+        return interaction.update({ content: 'One or more selected roles are missing, managed, have Administrator permission, or are above my highest role.', embeds: [], components: [] });
+      }
+      const channelId = jail.channelId ?? null;
+      for (const role of roles) {
+        if (!existing.some(item => item?.roleId === role.id)) existing.push({ roleId: role.id, channelId: null });
+      }
+      jail.roles = existing;
+      // Apply jail visibility to existing resources, matching setup behavior without changing unrelated settings.
+      const channels = await interaction.guild.channels.fetch();
+      for (const category of channels.filter(channel => channel.type === ChannelType.GuildCategory && channel.id !== jail.categoryId).values()) {
+        for (const role of roles) await category.permissionOverwrites.edit(role.id, { ViewChannel: false }, 'Register jail role from /config');
+      }
+      for (const resourceId of [jail.categoryId, channelId, jail.evidenceForumId].filter(Boolean)) {
+        const resource = await interaction.guild.channels.fetch(resourceId).catch(() => null);
+        if (!resource?.permissionOverwrites) continue;
+        for (const role of roles) {
+          await resource.permissionOverwrites.edit(role.id, resourceId === channelId
+            ? { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }
+            : { ViewChannel: true, ReadMessageHistory: true }, 'Register jail role from /config');
+        }
+      }
+      await updateGuildConfig(client, interaction.guildId, { jail });
+      return interaction.update({ content: `Registered ${roles.length} jail role(s): ${roles.map(role => `<@&${role.id}>`).join(', ')}. They use the default jail channel ${channelId ? `<#${channelId}>` : '(not configured)'} unless assigned a role-specific channel.`, embeds: [], components: [] });
+    }
+    if (interaction.customId === 'jconfig:lawyer_role' && interaction.isRoleSelectMenu()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const roleId = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current?.jail ?? {}) };
+      const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
+      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.update({ content: 'I need Manage Roles permission to configure the lawyer role.', embeds: [], components: [] });
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (!role || role.id === interaction.guildId || role.managed || botMember.roles.highest.comparePositionTo(role) <= 0) {
+        return interaction.update({ content: 'Choose a valid, manageable server role below my highest role.', embeds: [], components: [] });
+      }
+      if (role.permissions.has(PermissionFlagsBits.Administrator)) return interaction.update({ content: 'The lawyer role cannot have Administrator permission.', embeds: [], components: [] });
+      const previousId = jail.lawyerRoleId ?? null;
+      if (previousId && previousId !== role.id) {
+        for (const resourceId of [jail.categoryId, jail.channelId, jail.evidenceForumId].filter(Boolean)) {
+          const resource = await interaction.guild.channels.fetch(resourceId).catch(() => null);
+          if (resource?.permissionOverwrites) await resource.permissionOverwrites.delete(previousId, 'Replace configured lawyer role').catch(() => null);
+        }
+      }
+      jail.lawyerRoleId = role.id;
+      for (const resourceId of [jail.categoryId, jail.channelId, jail.evidenceForumId].filter(Boolean)) {
+        const resource = await interaction.guild.channels.fetch(resourceId).catch(() => null);
+        if (resource?.permissionOverwrites) await resource.permissionOverwrites.edit(role.id, { ViewChannel: true, ReadMessageHistory: true }, 'Configure lawyer role from /config');
+      }
+      await updateGuildConfig(client, interaction.guildId, { jail });
+      return interaction.update({ content: `Saved lawyer role: <@&${role.id}>. It can view the configured jail category, jail channel, and evidence forum.`, embeds: [], components: [] });
     }
     if (interaction.customId === 'jconfig:policeman_roles' && interaction.isRoleSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
