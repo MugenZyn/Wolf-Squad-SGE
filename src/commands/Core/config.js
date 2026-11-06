@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelSelectMenuBuilder, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelSelectMenuBuilder, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
@@ -59,7 +59,7 @@ function buildPaginatedRoleMenu(customId, placeholder, roles, page, selectedIds 
       .setCustomId(customId)
       .setPlaceholder(`${placeholder} (page ${safePage + 1}/${pageCount})`)
       .setMinValues(clearable ? 0 : 1)
-      .setMaxValues(multiple ? 25 : 1)
+      .setMaxValues(Math.min(multiple ? 25 : 1, Math.max(1, menuOptions.length)))
       .addOptions(menuOptions),
     page: safePage,
     pageCount,
@@ -839,7 +839,7 @@ export default {
       }
       for (const role of rolesToDelete) await role.delete('Role removed from jail configuration by an administrator');
       await updateGuildConfig(client, interaction.guildId, { jail });
-      await logConfigSave(interaction, jail, 'Roles removed', `**Roles:** ${removable.map(id => `<@&${id}>`).join(', ')}\n**Discord roles deleted:** ${interaction.customId === 'jconfig:remove_delete' ? 'Yes, where permitted' : 'No'}`);
+      await logConfigSave(interaction, jail, 'Roles removed', `**Role count:** ${removable.length}\n**Roles:** ${formatRoleMentions(removable, 2500)}\n**Discord roles deleted:** ${interaction.customId === 'jconfig:remove_delete' ? 'Yes, where permitted' : 'No'}`);
       pendingRoleRemovals.delete(key);
       return interaction.editReply({ content: `Removed ${removable.length} role(s) from jail configuration${interaction.customId === 'jconfig:remove_delete' ? ' and deleted the Discord roles where permitted' : ''}.`, embeds: [], components: [] });
     }
