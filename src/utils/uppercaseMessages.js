@@ -13,6 +13,10 @@ function uppercaseText(value) {
 export function uppercaseMessagePayload(payload) {
   if (typeof payload === 'string') return uppercaseText(payload);
   if (!payload || typeof payload !== 'object' || typeof payload.content !== 'string') return payload;
+  if (payload.preserveCase === true) {
+    const { preserveCase, ...discordPayload } = payload;
+    return discordPayload;
+  }
   return { ...payload, content: uppercaseText(payload.content) };
 }
 
