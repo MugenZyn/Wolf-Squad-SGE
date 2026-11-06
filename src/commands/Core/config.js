@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelSelectMenuBuilder, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
@@ -47,10 +47,53 @@ function panelPayload(jail) {
       .setPlaceholder('Manage configured roles')
       .addOptions(
         { label: 'Choose policeman roles', value: 'set_policeman', description: 'Select multiple roles; choose none to clear' },
+        { label: 'Set a jail role channel', value: 'set_jail_channel', description: 'Choose which jail channel a specific jail role uses' },
         { label: 'Remove roles from jail configuration', value: 'remove_roles', description: 'Unassign jail, lawyer, or policeman roles' },
       ),
   ));
   return { embeds: [embed], components: menus, flags: MessageFlags.Ephemeral };
+}
+
+
+async function saveJailRoleChannel(interaction, client, roleId, channelId) {
+  const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+  const current = await getGuildConfig(client, interaction.guildId);
+  const jail = { ...(current?.jail ?? {}) };
+  const roles = Array.isArray(jail.roles) ? [...jail.roles] : [];
+  const index = roles.findIndex(item => item?.roleId === roleId);
+  if (index < 0) return interaction.update({ content: 'That role is no longer registered as a jail role. Nothing was changed.', embeds: [], components: [] });
+  let selectedChannel = null;
+  if (channelId) {
+    selectedChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+    if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText) return interaction.update({ content: 'Choose a valid text channel.', embeds: [], components: [] });
+    roles[index] = { ...roles[index], roleId, channelId };
+  } else {
+    roles[index] = { ...roles[index], roleId, channelId: null };
+  }
+  jail.roles = roles;
+  const defaultChannelId = jail.channelId ?? null;
+  const channelIds = [...new Set([defaultChannelId, ...roles.map(item => item?.channelId).filter(Boolean)].filter(Boolean))];
+  const roleIds = roles.map(item => item?.roleId).filter(Boolean);
+  for (const id of channelIds) {
+    const channel = await interaction.guild.channels.fetch(id).catch(() => null);
+    if (!channel?.permissionOverwrites || channel.type !== ChannelType.GuildText) continue;
+    for (const configuredRoleId of roleIds) {
+      const configured = roles.find(item => item?.roleId === configuredRoleId);
+      const effectiveChannelId = configured?.channelId || defaultChannelId;
+      const canView = effectiveChannelId === channel.id;
+      await channel.permissionOverwrites.edit(configuredRoleId, canView
+        ? { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }
+        : { ViewChannel: false }, 'Update jail role channel from /config');
+    }
+  }
+  await updateGuildConfig(client, interaction.guildId, { jail });
+  return interaction.update({
+    content: channelId
+      ? `Saved: <@&${roleId}> now uses <#${channelId}>. Other configured jail roles are denied access to that role-specific channel.`
+      : `Saved: <@&${roleId}> now falls back to the default jail channel ${defaultChannelId ? `<#${defaultChannelId}>` : '(not configured yet)'}.`,
+    embeds: [],
+    components: [],
+  });
 }
 
 export default {
@@ -70,18 +113,55 @@ export default {
   },
 
   async handleComponent(interaction, client) {
+    if (interaction.customId === 'jconfig:channel_role' && interaction.isRoleSelectMenu()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const roleId = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
+      if (!entry) return interaction.update({ content: 'That role is not currently registered as a jail role. Run /setup-jail first.', embeds: [], components: [] });
+      const channelMenu = new ChannelSelectMenuBuilder()
+        .setCustomId(`jconfig:channel:${roleId}`)
+        .setPlaceholder('Choose the jail channel for this role')
+        .setChannelTypes(ChannelType.GuildText)
+        .setMinValues(1)
+        .setMaxValues(1);
+      return interaction.update({
+        content: `Choose a jail channel for <@&${roleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`,
+        embeds: [],
+        components: [
+          new ActionRowBuilder().addComponents(channelMenu),
+          new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
+        ],
+      });
+    }
+    if (interaction.isChannelSelectMenu() && interaction.customId.startsWith('jconfig:channel:')) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const roleId = interaction.customId.slice('jconfig:channel:'.length);
+      await saveJailRoleChannel(interaction, client, roleId, interaction.values[0]);
+      return true;
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_default:')) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const roleId = interaction.customId.slice('jconfig:channel_default:'.length);
+      await saveJailRoleChannel(interaction, client, roleId, null);
+      return true;
+    }
     if (interaction.customId === 'jconfig:role_action' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const action = interaction.values[0];
       const menu = new RoleSelectMenuBuilder()
-        .setCustomId(action === 'set_policeman' ? 'jconfig:policeman_roles' : 'jconfig:remove_roles')
+        .setCustomId(action === 'set_policeman' ? 'jconfig:policeman_roles' : action === 'set_jail_channel' ? 'jconfig:channel_role' : 'jconfig:remove_roles')
         .setMinValues(0)
-        .setMaxValues(25)
-        .setPlaceholder(action === 'set_policeman' ? 'Choose policeman roles (multiple allowed)' : 'Choose configured roles to remove');
+        .setMaxValues(action === 'set_jail_channel' ? 1 : 25)
+        .setMinValues(action === 'set_jail_channel' ? 1 : 0)
+        .setPlaceholder(action === 'set_policeman' ? 'Choose policeman roles (multiple allowed)' : action === 'set_jail_channel' ? 'Choose the jail role to configure' : 'Choose configured roles to remove');
       return interaction.update({
         content: action === 'set_policeman'
           ? 'Select the policeman roles to authorize. Select none and submit to clear all policeman roles; no role will be created.'
-          : 'Select one or more configured jail, lawyer, or policeman roles, then choose whether to only unassign them or also delete the Discord roles.',
+          : action === 'set_jail_channel'
+            ? 'Select the jail role whose channel you want to change.'
+            : 'Select one or more configured jail, lawyer, or policeman roles, then choose whether to only unassign them or also delete the Discord roles.',
         embeds: [],
         components: [new ActionRowBuilder().addComponents(menu)],
       });
