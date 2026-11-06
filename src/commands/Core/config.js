@@ -143,6 +143,48 @@ function jailChannelMenu(customId, placeholder, channels) {
     })));
 }
 
+const CHANNEL_PICKER_PAGE_SIZE = 23;
+
+async function getSelectableChannels(guild, type) {
+  const channels = await guild.channels.fetch();
+  return channels
+    .filter(channel => channel.type === type)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function buildPaginatedChannelPicker(key, page, channels) {
+  const pageCount = Math.max(1, Math.ceil(channels.length / CHANNEL_PICKER_PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, page), pageCount - 1);
+  const options = channels
+    .slice(safePage * CHANNEL_PICKER_PAGE_SIZE, (safePage + 1) * CHANNEL_PICKER_PAGE_SIZE)
+    .map(channel => ({
+      label: channel.name.slice(0, 100),
+      value: channel.id,
+      description: channel.parent?.name
+        ? `In ${channel.parent.name}`.slice(0, 100)
+        : 'Server channel',
+    }));
+
+  if (safePage > 0) {
+    options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous set' });
+  }
+  if (safePage < pageCount - 1) {
+    options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more channels' });
+  }
+
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`jconfig:pick_channel:${key}:${safePage}`)
+    .setPlaceholder(`Choose ${key === 'categoryId' ? 'a category' : 'a text channel'} (page ${safePage + 1}/${pageCount})`)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(options);
+
+  return {
+    menu,
+    content: `Choose the ${key === 'categoryId' ? 'jail category' : 'default jail channel'} — page ${safePage + 1} of ${pageCount} (${channels.length} available).`,
+  };
+}
+
 async function saveJailRoleChannel(interaction, client, roleId, channelId) {
   if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
   const { getGuildConfig } = await import('../../services/config/guildConfig.js');
@@ -247,14 +289,55 @@ export default {
       };
       const setting = settings[action];
       if (!setting) return false;
+      if (action === 'default_jail' || action === 'category') {
+        const channels = await getSelectableChannels(interaction.guild, setting.type);
+        if (!channels.length) {
+          return interaction.editReply({
+            content: action === 'default_jail'
+              ? 'No text channels were found in this server.'
+              : 'No categories were found in this server.',
+            embeds: [],
+            components: [],
+          });
+        }
+        const picker = buildPaginatedChannelPicker(setting.key, 0, channels);
+        return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+      }
       const menu = new ChannelSelectMenuBuilder().setCustomId(`jconfig:set_channel:${setting.key}`)
         .setPlaceholder(`Choose ${setting.label.toLowerCase()}`).setChannelTypes(setting.type).setMinValues(1).setMaxValues(1);
+      return interaction.editReply({ content: `Choose the ${setting.label.toLowerCase()}.`, embeds: [], components: [new ActionRowBuilder().addComponents(menu)] });
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:pick_channel:')) {
+      const [, , key, pageValue] = interaction.customId.split(':');
+      const setting = key === 'channelId'
+        ? { label: 'Default jail channel', type: ChannelType.GuildText }
+        : key === 'categoryId'
+          ? { label: 'Jail category', type: ChannelType.GuildCategory }
+          : null;
+      if (!setting) return interaction.editReply({ content: 'Invalid channel setting.', embeds: [], components: [] });
+
+      const selected = interaction.values[0];
+      const currentPage = Number.parseInt(pageValue, 10) || 0;
+      if (selected === '__previous_page__' || selected === '__next_page__') {
+        const channels = await getSelectableChannels(interaction.guild, setting.type);
+        const nextPage = selected === '__previous_page__' ? currentPage - 1 : currentPage + 1;
+        const picker = buildPaginatedChannelPicker(key, nextPage, channels);
+        return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+      }
+
+      const selectedChannel = await interaction.guild.channels.fetch(selected).catch(() => null);
+      if (!selectedChannel || selectedChannel.type !== setting.type) {
+        return interaction.editReply({ content: `That is not a valid ${setting.label.toLowerCase()}.`, embeds: [], components: [] });
+      }
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current?.jail ?? {}), [key]: selectedChannel.id };
+      await updateGuildConfig(client, interaction.guildId, { jail });
+      await logConfigSave(interaction, jail, setting.label, `**Selection:** <#${selectedChannel.id}>`);
       return interaction.editReply({
-        content: action === 'default_jail'
-          ? 'Choose the default jail channel from all available server text channels.'
-          : `Choose the ${setting.label.toLowerCase()} from the available server channels.`,
+        content: `Saved ${setting.label.toLowerCase()}: <#${selectedChannel.id}>.`,
         embeds: [],
-        components: [new ActionRowBuilder().addComponents(menu)],
+        components: [],
       });
     }
     if (interaction.isChannelSelectMenu() && interaction.customId.startsWith('jconfig:set_channel:')) {
