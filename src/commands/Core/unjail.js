@@ -4,6 +4,23 @@ import { getGuildConfig, updateGuildConfig } from '../../services/config/guildCo
 import { cancelJailRelease } from '../../services/jailReleaseService.js';
 import { markExpectedJailRoleRemoval, clearExpectedJailRoleRemoval } from '../../services/jailRoleUpdateGuard.js';
 
+function chunkListItems(items, maxLength = 1600, separator = ', ') {
+  const chunks = [];
+  let current = '';
+  for (const item of items ?? []) {
+    const rendered = String(item);
+    const next = current ? `${current}${separator}${rendered}` : rendered;
+    if (current && next.length > maxLength) {
+      chunks.push(current);
+      current = rendered;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 function renderAnnouncement(template, values) {
   return String(template ?? '').replace(/\{\{(user|server|moderator|roles)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
 }
@@ -100,16 +117,31 @@ export default {
         const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
         if (role) namesForThread.push(role.name);
       }
-      await thread.send({
+      const roleNameChunks = chunkListItems(namesForThread);
+      const roleLine = !namesForThread.length
+        ? '**Jail role(s) removed:** Configured jail role'
+        : roleNameChunks.length === 1
+          ? `**Jail role(s) removed:** ${roleNameChunks[0]}`
+          : `**Jail role(s) removed:** ${namesForThread.length} roles. The complete list follows.`;
+      const posted = await thread.send({
         content: [
           '🔓 **Member unjailed**',
           `**Member:** <@${target.id}> (${target.id})`,
           `**Released by:** <@${interaction.user.id}>`,
-          `**Jail role(s) removed:** ${namesForThread.length ? namesForThread.join(', ') : 'Configured jail role'}`,
+          roleLine,
           `**Released at:** <t:${Math.floor(releasedAt / 1000)}:F>`,
-        ].join('\n'),
+        ].join('\\n'),
         allowedMentions: { parse: [] },
-      }).then(() => { evidenceLogCount++; }).catch(() => null);
+      }).then(() => true).catch(() => false);
+      if (posted) evidenceLogCount++;
+      if (posted && roleNameChunks.length > 1) {
+        for (let index = 0; index < roleNameChunks.length; index++) {
+          await thread.send({
+            content: `**Jail roles removed (${index + 1}/${roleNameChunks.length}):**\\n${roleNameChunks[index]}`,
+            allowedMentions: { parse: [] },
+          }).catch(() => null);
+        }
+      }
     }
 
     const removedRoleNames = [];
@@ -117,8 +149,12 @@ export default {
       const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
       if (role) removedRoleNames.push(role.name);
     }
+    const roleAnnouncementText = removedRoleNames.join(', ');
     const unjailAnnouncement = renderAnnouncement(currentJail.unjailAnnouncement || '{{user}} HAS BEEN UNJAILED', {
-      user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`, roles: removedRoleNames.join(', '),
+      user: `<@${target.id}>`,
+      server: interaction.guild.name,
+      moderator: `<@${interaction.user.id}>`,
+      roles: roleAnnouncementText.length <= 900 ? roleAnnouncementText : `${removedRoleNames.length} jail roles`,
     });
     // Post the unjail announcement both where the command was run and
     // in the configured announcements channel. Do not post it in private jail channels.
@@ -141,19 +177,37 @@ export default {
     }
     const lines = [
       removed.length
-        ? `Removed ${removed.length} jail role(s) from <@${target.id}>: ${removedNames.join(', ')}.`
+        ? `Removed ${removed.length} jail role(s) from <@${target.id}>.`
         : `No jail roles could be removed from <@${target.id}>.`,
       removed.length && evidenceLogCount
         ? `Posted the unjail record in ${evidenceLogCount} jail evidence thread(s).`
         : removed.length
           ? 'Could not post to an evidence thread for this release. Older cases may not have a saved evidence-thread link.'
           : '',
-      failed.length ? `Could not remove: ${failed.join(', ')}. Check the bot's role hierarchy and permissions.` : '',
+      failed.length ? `Could not remove ${failed.length} jail role(s). Check the bot's role hierarchy and permissions.` : '',
     ].filter(Boolean);
-    return interaction.reply({
-      content: lines.join('\n'),
+    await interaction.reply({
+      content: lines.join('\\n'),
       flags: MessageFlags.Ephemeral,
       allowedMentions: { parse: [] },
     });
+
+    const removedNameChunks = chunkListItems(removedNames);
+    for (let index = 0; index < removedNameChunks.length; index++) {
+      await interaction.followUp({
+        content: `Removed roles (${index + 1}/${removedNameChunks.length}):\\n${removedNameChunks[index]}`,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+      });
+    }
+    const failedNameChunks = chunkListItems(failed);
+    for (let index = 0; index < failedNameChunks.length; index++) {
+      await interaction.followUp({
+        content: `Roles not removed (${index + 1}/${failedNameChunks.length}):\\n${failedNameChunks[index]}`,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+      });
+    }
+    return;
   },
 };
