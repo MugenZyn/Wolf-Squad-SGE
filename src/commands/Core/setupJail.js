@@ -242,7 +242,7 @@ function setupPanelText(session) {
   const s = session.selections;
   return [
     '**Jail setup** — choose the resources below, then press Save.',
-    `Jail roles: ${(s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).length ? (s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).map(id => `<@&${id}>`).join(', ') : 'Not selected (required)'}`,
+    `Jail roles: ${(s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).length ? (s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds).map(id => `<@&${id}>`).join(', ') : 'None selected — SGE - JAIL will be created or reused automatically'}`,
     `Lawyer role: ${s.lawyerRoleId ? `<@&${s.lawyerRoleId}>` : (session.existing.lawyerRoleId ? `<@&${session.existing.lawyerRoleId}>` : 'Not selected (will create or reuse SGE - LAWYER)')}`,
     `Category: ${s.categoryId ? `<#${s.categoryId}>` : (s.jailChannelId ? 'Use the selected channel category (if any)' : 'Create default JAIL category')}`,
     `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create a new jail channel'}`,
@@ -253,7 +253,7 @@ function setupPanelText(session) {
 
 function buildSetupPanel(token) {
   return [
-    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleIds`).setPlaceholder('1. Select jail roles (multiple allowed)').setMinValues(0).setMaxValues(25)),
+    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleIds`).setPlaceholder('1. Select jail roles (optional; leave empty to create/reuse SGE - JAIL)').setMinValues(0).setMaxValues(25)),
     new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('2. Select lawyer role (leave empty to create/reuse SGE - LAWYER)').setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('3. Select existing jail channel (leave empty to create)').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('5. Select existing evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
