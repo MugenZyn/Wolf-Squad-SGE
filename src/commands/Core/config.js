@@ -63,6 +63,7 @@ export default {
         const guild = interaction.guild;
         const botMember = guild.members.me ?? await guild.members.fetchMe();
         if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: 'I need Manage Roles permission to create the default policeman role.', flags: MessageFlags.Ephemeral });
+        await guild.roles.fetch();
         const role = guild.roles.cache.find(item => item.name === 'SGE - POLICEMAN') || await guild.roles.create({ name: 'SGE - POLICEMAN', reason: 'Default policeman role selected from /config' });
         if (botMember.roles.highest.comparePositionTo(role) <= 0) return interaction.reply({ content: 'Move my highest role above SGE - POLICEMAN, then select it again.', flags: MessageFlags.Ephemeral });
         roleIds = [role.id];
