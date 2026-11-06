@@ -9,13 +9,15 @@ export default {
 
   async execute(interaction) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { getGuildConfig } = await import('../../services/config/guildConfig.js');
     const current = await getGuildConfig(interaction.client, interaction.guild.id);
     const existingJail = current?.jail ?? {};
     if (hasExistingJailSetup(existingJail)) {
-      return interaction.reply({
+      return interaction.editReply({
         content: 'A jail system is already configured in this server. Use /config to manage the existing jail system instead of setting up another one.',
-        flags: MessageFlags.Ephemeral,
+        embeds: [],
+        components: [],
       });
     }
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
@@ -29,7 +31,7 @@ export default {
     } });
     const timer = setTimeout(() => setupSessions.delete(token), 15 * 60 * 1000);
     timer.unref?.();
-    return interaction.reply({ embeds: [setupPanelEmbed(setupSessions.get(token))], components: buildSetupPanel(token, 'roles'), flags: MessageFlags.Ephemeral });
+    return interaction.editReply({ content: '', embeds: [setupPanelEmbed(setupSessions.get(token))], components: buildSetupPanel(token, 'roles') });
   },
 
   async handleComponent(interaction, client) {
