@@ -214,7 +214,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       embeds: [{
         color: 0x2B8A3E,
         title: 'Command executed: /setup-jail',
-        description: `**Staff:** <@${user.id}> (${user.id})\n**Jail role:** <@&${jailRole.id}>\n**Jail channel:** <#${jailChannel.id}>\n**Evidence forum:** <#${evidenceForum.id}>\n**Logs channel:** <#${logsChannel.id}>`,
+        description: `**Staff:** <@${user.id}> (${user.id})\n**Jail roles:** ${uniqueJailRoles.map(role => `<@&${role.id}>`).join(', ')}\n**Jail channel:** <#${jailChannel.id}>\n**Evidence forum:** <#${evidenceForum.id}>\n**Logs channel:** <#${logsChannel.id}>`,
         timestamp: new Date().toISOString(),
       }],
       allowedMentions: { parse: [] },
