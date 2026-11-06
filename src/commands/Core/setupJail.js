@@ -21,7 +21,7 @@ export default {
       });
     }
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
-    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', selections: {}, existing: {
+    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', selections: { managePermissions: true }, existing: {
       jailRoleIds: (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean),
       lawyerRoleId: existingJail.lawyerRoleId ?? null,
       policemanRoleIds: existingJail.policemanRoleIds ?? [],
@@ -49,6 +49,11 @@ export default {
     if (interaction.isButton() && field === 'back') {
       session.page = 'roles';
       await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'roles') });
+      return true;
+    }
+    if (interaction.isButton() && field === 'permissions') {
+      session.selections.managePermissions = session.selections.managePermissions === false;
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'channels') });
       return true;
     }
     if (interaction.isButton() && field === 'save') {
@@ -86,6 +91,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
     const existingJail = guildConfig?.jail ?? {};
+    const managePermissions = selections.managePermissions !== false;
     if (hasExistingJailSetup(existingJail)) {
       return interaction.editReply('A jail system is already configured in this server. Use /config to manage the existing jail system instead of setting up another one.');
     }
@@ -122,8 +128,8 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       lawyerRoleId = lawyerRole.id;
     }
     if (lawyerRole.id === guild.id) return interaction.editReply('I could not use @everyone as the lawyer role.');
-    if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels) || !botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Channels and Manage Roles permissions.');
-    if (uniqueJailRoles.some(role => botMember.roles.highest.comparePositionTo(role) <= 0) || (lawyerRole && botMember.roles.highest.comparePositionTo(lawyerRole) <= 0)) return interaction.editReply('My highest role must be above all selected roles.');
+    if (!botMember.permissions.has(PermissionFlagsBits.ManageChannels) || !botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Channels and Manage Roles permissions to create any missing jail resources and configure roles.');
+    if (uniqueJailRoles.some(role => botMember.roles.highest.comparePositionTo(role) <= 0) || (managePermissions && lawyerRole && botMember.roles.highest.comparePositionTo(lawyerRole) <= 0)) return interaction.editReply('My highest role must be above all selected jail roles and, when I manage permissions, the lawyer role.');
 
     let jailChannel = existingChannelId ? await guild.channels.fetch(existingChannelId).catch(() => null) : null;
     if (existingChannelId && jailChannel?.type !== ChannelType.GuildText) return interaction.editReply('jail_channel_id must identify an existing text channel.');
@@ -136,28 +142,30 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     } else if (!jailChannel) {
       category = await guild.channels.create({ name: categoryName || 'JAIL', type: ChannelType.GuildCategory, reason });
     }
-    if (category && jailChannel && jailChannel.parentId !== category.id) {
+    if (managePermissions && category && jailChannel && jailChannel.parentId !== category.id) {
       await jailChannel.setParent(category.id, { lockPermissions: false, reason });
     }
-    // Apply permissions only to the jail role selected for this setup.
-    // Other configured jail roles and their permissions remain untouched.
-    const allGuildChannels = await guild.channels.fetch();
-    // Hide every other category from members with the current jail role.
-    // This is applied only when /setup-jail is explicitly run; later staff edits remain untouched.
-    const otherCategories = allGuildChannels.filter(channel =>
-      channel.type === ChannelType.GuildCategory && channel.id !== category?.id
-    );
-    for (const otherCategory of otherCategories.values()) {
-      for (const role of uniqueJailRoles) await otherCategory.permissionOverwrites.edit(role.id, { ViewChannel: false }, reason);
+    if (managePermissions) {
+      // Apply permissions only to the jail role selected for this setup.
+      // Other configured jail roles and their permissions remain untouched.
+      const allGuildChannels = await guild.channels.fetch();
+      // Hide every other category from members with the current jail role.
+      // This is applied only when /setup-jail is explicitly run; later staff edits remain untouched.
+      const otherCategories = allGuildChannels.filter(channel =>
+        channel.type === ChannelType.GuildCategory && channel.id !== category?.id
+      );
+      for (const otherCategory of otherCategories.values()) {
+        for (const role of uniqueJailRoles) await otherCategory.permissionOverwrites.edit(role.id, { ViewChannel: false }, reason);
+      }
+      if (category) for (const role of uniqueJailRoles) await category.permissionOverwrites.edit(role.id, { ViewChannel: true }, reason);
     }
-    if (category) for (const role of uniqueJailRoles) await category.permissionOverwrites.edit(role.id, { ViewChannel: true }, reason);
 
     const existingRoleIds = new Set((existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean));
     const combinedRoleIds = new Set([...existingRoleIds, ...uniqueJailRoles.map(role => role.id)]);
     if (combinedRoleIds.size > 25) return interaction.editReply('Discord role selectors support up to 25 jail roles. Remove some before adding more.');
 
     const botRoleIds = new Set(botMember.roles.cache.keys());
-    const categoryOverwrites = category
+    const categoryOverwrites = managePermissions && category
       ? [...category.permissionOverwrites.cache.values()]
           .filter(overwrite => ![guild.id, ...uniqueJailRoles.map(role => role.id), lawyerRoleId, botMember.id].includes(overwrite.id) && !botRoleIds.has(overwrite.id))
           .map(overwrite => ({ id: overwrite.id, deny: [PermissionFlagsBits.ViewChannel] }))
@@ -168,19 +176,23 @@ async function configureJail(interaction, guildConfig, selections = {}) {
         type: ChannelType.GuildText,
         ...(category ? { parent: category.id } : {}),
         reason,
-        permissionOverwrites: [
-          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-          ...categoryOverwrites,
-          ...uniqueJailRoles.map(role => ({ id: role.id, allow: JAIL_ALLOW, deny: [PermissionFlagsBits.EmbedLinks] })),
-          ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
-          { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-        ],
+        ...(managePermissions ? {
+          permissionOverwrites: [
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+            ...categoryOverwrites,
+            ...uniqueJailRoles.map(role => ({ id: role.id, allow: JAIL_ALLOW, deny: [PermissionFlagsBits.EmbedLinks] })),
+            ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
+            { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+          ],
+        } : {}),
       });
     }
 
-    await jailChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, reason);
-    for (const role of uniqueJailRoles) await jailChannel.permissionOverwrites.edit(role.id, { allow: JAIL_ALLOW, deny: [PermissionFlagsBits.EmbedLinks] }, reason);
-    if (lawyerRole) await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+    if (managePermissions) {
+      await jailChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, reason);
+      for (const role of uniqueJailRoles) await jailChannel.permissionOverwrites.edit(role.id, { allow: JAIL_ALLOW, deny: [PermissionFlagsBits.EmbedLinks] }, reason);
+      if (lawyerRole) await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+    }
 
     let evidenceForum = forumId ? await guild.channels.fetch(forumId).catch(() => null) : null;
     if (forumId && evidenceForum?.type !== ChannelType.GuildForum) return interaction.editReply('evidence_forum_id must identify an existing forum channel.');
@@ -189,24 +201,28 @@ async function configureJail(interaction, guildConfig, selections = {}) {
         name: forumName, type: ChannelType.GuildForum,
         ...(category ? { parent: category.id } : {}),
         reason,
-        permissionOverwrites: [
-          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.SendMessagesInThreads] },
-          ...(guildConfig?.modRole ? [{ id: guildConfig.modRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
-          ...(guildConfig?.adminRole ? [{ id: guildConfig.adminRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
-          ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
-        ],
+        ...(managePermissions ? {
+          permissionOverwrites: [
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.CreatePublicThreads, PermissionFlagsBits.SendMessagesInThreads] },
+            ...(guildConfig?.modRole ? [{ id: guildConfig.modRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
+            ...(guildConfig?.adminRole ? [{ id: guildConfig.adminRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
+            ...(lawyerRole ? [{ id: lawyerRole.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] }] : []),
+          ],
+        } : {}),
       });
     } 
-    // A lawyer-role change only touches that role's explicit access on these three resources.
-    if (previousLawyerRoleId && previousLawyerRoleId !== lawyerRole.id) {
-      for (const resource of [category, jailChannel, evidenceForum].filter(Boolean)) {
-        await resource.permissionOverwrites.delete(previousLawyerRoleId, reason).catch(() => null);
+    if (managePermissions) {
+      // A lawyer-role change only touches that role's explicit access on these three resources.
+      if (previousLawyerRoleId && previousLawyerRoleId !== lawyerRole.id) {
+        for (const resource of [category, jailChannel, evidenceForum].filter(Boolean)) {
+          await resource.permissionOverwrites.delete(previousLawyerRoleId, reason).catch(() => null);
+        }
       }
+      if (category) await category.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+      await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
+      await evidenceForum.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
     }
-    if (category) await category.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
-    await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
-    await evidenceForum.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
 
     let logsChannel = null;
     const existingLogsId = guildConfig?.jail?.logsChannelId;
@@ -217,16 +233,20 @@ async function configureJail(interaction, guildConfig, selections = {}) {
         type: ChannelType.GuildText,
         ...(category ? { parent: category.id } : {}),
         reason: 'Create default jail command logs channel',
-        permissionOverwrites: [
-          { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-          { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-        ],
+        ...(managePermissions ? {
+          permissionOverwrites: [
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+          ],
+        } : {}),
       });
     }
 
-    // Touch only the server default and bot access; preserve every other existing log overwrite.
-    await logsChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, 'Restrict default jail log visibility');
-    await logsChannel.permissionOverwrites.edit(botMember.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, 'Ensure bot can use jail logs');
+    if (managePermissions) {
+      // Touch only the server default and bot access; preserve every other existing log overwrite.
+      await logsChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, 'Restrict default jail log visibility');
+      await logsChannel.permissionOverwrites.edit(botMember.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, 'Ensure bot can use jail logs');
+    }
 
     const roles = Array.isArray(existingJail.roles) ? [...existingJail.roles] : [];
     for (const role of uniqueJailRoles) {
@@ -271,11 +291,13 @@ function setupPanelEmbed(session) {
       { name: 'Category', value: s.categoryId ? `<#${s.categoryId}>` : 'Create automatically (JAIL)', inline: true },
       { name: 'Default jail channel', value: s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create automatically (jail)', inline: true },
       { name: 'Evidence forum', value: s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create automatically (jail-evidence)', inline: true },
+      ...(session.page === 'channels' ? [{ name: 'Channel permissions', value: s.managePermissions === false ? 'Leave existing permissions unchanged' : 'Bot configures jail permissions', inline: false }] : []),
       { name: 'Current page', value: session.page === 'channels' ? 'Channels' : 'Roles', inline: true },
     );
 }
 
 function buildSetupPanel(token, page = 'roles') {
+  const session = setupSessions.get(token);
   if (page === 'channels') {
     return [
       new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:categoryId`).setPlaceholder('Select jail category').setChannelTypes(ChannelType.GuildCategory).setMinValues(0).setMaxValues(1)),
@@ -283,6 +305,10 @@ function buildSetupPanel(token, page = 'roles') {
       new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('Select jail evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`jsetup:${token}:back`).setLabel('Back').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId(`jsetup:${token}:permissions`)
+          .setLabel(session?.selections?.managePermissions === false ? 'Permissions: Unchanged' : 'Permissions: Bot manages')
+          .setStyle(session?.selections?.managePermissions === false ? ButtonStyle.Secondary : ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success),
       ),
     ];
