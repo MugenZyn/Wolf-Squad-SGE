@@ -28,6 +28,10 @@ function panelPayload(jail) {
       { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 1), inline: true },
       { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
       { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
+      { name: 'Jail role → channel', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => ` <@&${item.roleId}> → ${item.channelId ? `<#${item.channelId}>` : 'No channel linked'}`).join('\n').slice(0, 1024) : 'None configured', inline: false },
+      { name: 'Jail category', value: jail.categoryId ? `<#${jail.categoryId}>` : 'None configured', inline: true },
+      { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
+      { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
       { name: 'Lawyer role', value: jail.lawyerRoleId ? `<@&${jail.lawyerRoleId}>` : 'None configured', inline: true },
       { name: 'Policeman roles', value: Array.isArray(jail.policemanRoleIds) && jail.policemanRoleIds.length ? jail.policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None configured', inline: false },
     );
