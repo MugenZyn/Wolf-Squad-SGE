@@ -3,15 +3,18 @@ import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
 const scheduled = new Map();
 
 export function cancelJailRelease(guildId, userId) {
-  const key = `${guildId}:${userId}`;
-  const timer = scheduled.get(key);
-  if (timer) clearTimeout(timer);
-  scheduled.delete(key);
+  const prefix = `${guildId}:${userId}:`;
+  for (const [key, timer] of scheduled.entries()) {
+    if (key.startsWith(prefix) || key === `${guildId}:${userId}`) {
+      clearTimeout(timer);
+      scheduled.delete(key);
+    }
+  }
 }
 
 export function scheduleJailRelease(client, guildId, jailCase) {
   if (!jailCase?.releaseAt || !jailCase?.userId || !jailCase?.roleId || jailCase.sentencePaused) return;
-  const key = `${guildId}:${jailCase.userId}`;
+  const key = `${guildId}:${jailCase.userId}:${jailCase.roleId}`;
   const existing = scheduled.get(key);
   if (existing) clearTimeout(existing);
   const releaseAt = Number(jailCase.releaseAt);
