@@ -1,4 +1,4 @@
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ChannelSelectMenuBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder, MessageFlags } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, ChannelSelectMenuBuilder, PermissionFlagsBits, RoleSelectMenuBuilder, SlashCommandBuilder, MessageFlags } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 
 const ID_PATTERN = /^\d{17,20}$/;
@@ -29,7 +29,7 @@ export default {
     } });
     const timer = setTimeout(() => setupSessions.delete(token), 15 * 60 * 1000);
     timer.unref?.();
-    return interaction.reply({ content: setupPanelText(setupSessions.get(token)), components: buildSetupPanel(token, 'roles'), flags: MessageFlags.Ephemeral });
+    return interaction.reply({ embeds: [setupPanelEmbed(setupSessions.get(token))], components: buildSetupPanel(token, 'roles'), flags: MessageFlags.Ephemeral });
   },
 
   async handleComponent(interaction, client) {
@@ -41,12 +41,12 @@ export default {
     }
     if (interaction.isButton() && field === 'next') {
       session.page = 'channels';
-      await interaction.update({ content: setupPanelText(session), components: buildSetupPanel(token, 'channels') });
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'channels') });
       return true;
     }
     if (interaction.isButton() && field === 'back') {
       session.page = 'roles';
-      await interaction.update({ content: setupPanelText(session), components: buildSetupPanel(token, 'roles') });
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'roles') });
       return true;
     }
     if (interaction.isButton() && field === 'save') {
@@ -71,7 +71,7 @@ export default {
       } else if (field === 'evidenceForumId' && interaction.isChannelSelectMenu()) {
         if (interaction.values[0]) session.selections.evidenceForumId = interaction.values[0];
       }
-      await interaction.update({ content: setupPanelText(session), components: buildSetupPanel(token, session.page) });
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, session.page) });
       return true;
     }
     return false;
@@ -250,21 +250,26 @@ async function configureJail(interaction, guildConfig, selections = {}) {
 
 const setupSessions = new Map();
 
-function setupPanelText(session) {
+function setupPanelEmbed(session) {
   const s = session.selections;
   const jailRoleIds = s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds;
   const policemanRoleIds = s.policemanRoleIds ?? session.existing.policemanRoleIds ?? [];
   const lawyerRoleId = s.lawyerRoleId ?? session.existing.lawyerRoleId;
-  return [
-    '**Jail setup**',
-    `Jail roles: ${jailRoleIds.length ? jailRoleIds.map(id => `<@&${id}>`).join(', ') : 'Automatic (SGE - JAIL)'}`,
-    `Lawyer role: ${lawyerRoleId ? `<@&${lawyerRoleId}>` : 'Automatic (SGE - LAWYER)'}`,
-    `Policeman roles: ${policemanRoleIds.length ? policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None'}`,
-    `Category: ${s.categoryId ? `<#${s.categoryId}>` : 'Automatic (JAIL)'}`,
-    `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Automatic (jail)'}`,
-    `Evidence forum: ${s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Automatic (jail-evidence)'}`,
-    `Page: ${session.page === 'channels' ? 'Channels' : 'Roles'}`,
-  ].join('\n');
+  return new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('Jail setup')
+    .setDescription(session.page === 'channels'
+      ? 'Choose the channels used by the jail system. Leave a selection empty to create it automatically.'
+      : 'Choose the roles used by the jail system. Jail and lawyer roles are created automatically if left empty.')
+    .addFields(
+      { name: 'Jail roles', value: jailRoleIds.length ? jailRoleIds.map(id => `<@&${id}>`).join(', ') : 'Automatic (SGE - JAIL)', inline: false },
+      { name: 'Lawyer role', value: lawyerRoleId ? `<@&${lawyerRoleId}>` : 'Automatic (SGE - LAWYER)', inline: true },
+      { name: 'Policeman roles', value: policemanRoleIds.length ? policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None', inline: true },
+      { name: 'Category', value: s.categoryId ? `<#${s.categoryId}>` : 'Create automatically (JAIL)', inline: true },
+      { name: 'Default jail channel', value: s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create automatically (jail)', inline: true },
+      { name: 'Evidence forum', value: s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create automatically (jail-evidence)', inline: true },
+      { name: 'Current page', value: session.page === 'channels' ? 'Channels' : 'Roles', inline: true },
+    );
 }
 
 function buildSetupPanel(token, page = 'roles') {
