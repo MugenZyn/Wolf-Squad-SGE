@@ -4,7 +4,7 @@ import { getGuildConfig, updateGuildConfig } from '../../services/config/guildCo
 import { cancelJailRelease } from '../../services/jailReleaseService.js';
 
 function renderAnnouncement(template, values) {
-  return String(template ?? '').replace(/\\{\\{(user|server|moderator|roles)\\}\\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
+  return String(template ?? '').replace(/\{\{(user|server|moderator|roles)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
 }
 
 export default {
