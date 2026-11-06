@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, EmbedBuilder, MessageFlags, PermissionFlagsBits,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, PermissionFlagsBits,
   SlashCommandBuilder, StringSelectMenuBuilder,
 } from 'discord.js';
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
@@ -104,7 +104,6 @@ export default {
         { name: 'Original channel', value: `<#${interaction.channelId}> (${interaction.channelId})`, inline: true },
         { name: 'Time', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
       )
-      .setURL(jumpUrl)
       .setDescription(addon ? `**Additional note:**\n${clip(addon, 3500)}` : 'No additional note was provided.');
     if (evidence.length) {
       const body = evidence.map(m => `**<t:${Math.floor(m.createdTimestamp / 1000)}:f>** — ${clip(m.content || '[No text content]', 700)}${m.attachments.size ? `\nAttachments: ${[...m.attachments.values()].map(a => a.url).join(' ')}` : ''}`).join('\n\n');
@@ -112,13 +111,18 @@ export default {
     } else {
       embed.addFields({ name: 'Recent messages', value: 'No recent messages from this member were found in the channel where /jail was run.' });
     }
-    embed.addFields({ name: 'Jump to context', value: `[Open the original context in <#${interaction.channelId}>](${jumpUrl})` });
+    const jumpButton = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('Jump to Context')
+        .setStyle(ButtonStyle.Link)
+        .setURL(jumpUrl)
+    );
 
     let evidenceResult = 'Evidence post created.';
     try {
       await forum.threads.create({
         name: `Jail — ${target.user.username}`.slice(0, 100),
-        message: { embeds: [embed], allowedMentions: { parse: [] } },
+        message: { embeds: [embed], components: [jumpButton], allowedMentions: { parse: [] } },
         reason: `Jail evidence for ${target.id}`,
       });
     } catch (error) {
