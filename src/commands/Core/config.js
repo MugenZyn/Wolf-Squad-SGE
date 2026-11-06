@@ -366,8 +366,13 @@ export default {
         if (!roles.length) return interaction.editReply({ content: 'No jail roles are configured yet. Add jail roles on the Roles page first.', embeds: [], components: [] });
         const ids = [...new Set(roles.map(item => item.roleId))];
         const guildRoles = (await Promise.all(ids.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
-        const picker = buildPaginatedRoleMenu('jconfig:channel_role_page:0', 'Choose a configured jail role', guildRoles, 0, [], { multiple: false, clearable: false });
-        return interaction.editReply({ content: `Choose the jail role whose channel you want to change. Page 1 of ${picker.pageCount}.`, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+        const state = { roles: guildRoles, selectedIds: [], page: 0, mode: 'single', searchQuery: '' };
+        pendingChannelRolePickers.set(`${interaction.guildId}:${interaction.user.id}`, state);
+        const picker = buildPaginatedRoleMenu('jconfig:channel_role_page:0', 'Choose a configured jail role', state);
+        return interaction.editReply({ content: `Choose the jail role whose channel you want to change. Page 1 of ${picker.pageCount}.`, embeds: [], components: [
+          new ActionRowBuilder().addComponents(picker.menu),
+          buildRolePagerControls('jconfig:channel_role_control', state),
+        ] });
       }
       const settings = {
         default_jail: { key: 'channelId', label: 'Default jail channel', type: ChannelType.GuildText },
@@ -471,68 +476,47 @@ export default {
       return true;
     }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:channel_role_page:')) {
-      const currentPage = Number.parseInt(interaction.customId.split(':').at(-1), 10) || 0;
-      const selected = interaction.values[0];
-      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
-      const current = await getGuildConfig(client, interaction.guildId);
-      const ids = [...new Set((current?.jail?.roles ?? []).map(item => item?.roleId).filter(Boolean))];
-      const guildRoles = (await Promise.all(ids.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
-      if (selected === '__previous_page__' || selected === '__next_page__') {
-        const nextPage = selected === '__previous_page__' ? currentPage - 1 : currentPage + 1;
-        const picker = buildPaginatedRoleMenu(`jconfig:channel_role_page:${nextPage}`, 'Choose a configured jail role', guildRoles, nextPage, [], { multiple: false, clearable: false });
-        return interaction.editReply({ content: `Choose the jail role whose channel you want to change. Page ${picker.page + 1} of ${picker.pageCount}.`, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
-      }
-      const roleId = selected;
-      const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
-      if (!entry) return interaction.editReply({ content: 'That role is not currently registered as a jail role. Nothing was changed.', embeds: [], components: [] });
-      const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
-      if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
-      const channelMenu = jailChannelMenu(roleId, 0, channels);
-      return interaction.editReply({ content: `Choose a jail channel for <@&${roleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`, embeds: [], components: [
-        new ActionRowBuilder().addComponents(channelMenu),
-        new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
-      ] });
-    }
-    if (interaction.customId === 'jconfig:channel_role' && interaction.isStringSelectMenu()) {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
-      const roleId = interaction.values[0];
-      if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
-      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
-      const current = await getGuildConfig(client, interaction.guildId);
-      const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
-      if (!entry) return interaction.editReply({ content: 'That role is not currently registered as a jail role. Run /setup-jail first.', embeds: [], components: [] });
-      const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
-      if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
-      const channelMenu = jailChannelMenu(roleId, 0, channels);
-      return interaction.editReply({
-        content: `Choose a jail channel for <@&${roleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`,
-        embeds: [],
-        components: [
-          new ActionRowBuilder().addComponents(channelMenu),
-          new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
-        ],
-      });
-    }
-    if ((interaction.isChannelSelectMenu() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('jconfig:channel:')) {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
-      const [, , roleId, pageValue] = interaction.customId.split(':');
-      const selected = interaction.values[0];
-      if (interaction.isStringSelectMenu() && (selected === '__previous_page__' || selected === '__next_page__')) {
+      const key = `${interaction.guildId}:${interaction.user.id}`;
+      const state = pendingChannelRolePickers.get(key);
+      if (!state) return interaction.editReply({ content: 'That role picker expired. Choose the role again from /config.', embeds: [], components: [] });
+      const selectedRoleId = interaction.values[0];
+      const entry = (await (async () => {
         const { getGuildConfig } = await import('../../services/config/guildConfig.js');
         const current = await getGuildConfig(client, interaction.guildId);
-        const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
-        if (!entry) return interaction.editReply({ content: 'That jail role is no longer configured.', embeds: [], components: [] });
-        const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
-        const currentPage = Number.parseInt(pageValue, 10) || 0;
-        const nextPage = selected === '__previous_page__' ? currentPage - 1 : currentPage + 1;
-        const channelMenu = jailChannelMenu(roleId, nextPage, channels);
-        return interaction.editReply({ content: `Choose a jail channel for <@&${roleId}>. Page ${nextPage + 1} of ${Math.max(1, Math.ceil(channels.length / CONFIG_CHANNEL_ROLE_PAGE_SIZE))}.`, embeds: [], components: [
-          new ActionRowBuilder().addComponents(channelMenu),
-          new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
-        ] });
+        return (current?.jail?.roles ?? []).find(item => item?.roleId === selectedRoleId);
+      })());
+      if (!entry) return interaction.editReply({ content: 'That role is not currently registered as a jail role.', embeds: [], components: [] });
+      pendingChannelRolePickers.delete(key);
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
+      if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
+      const channelMenu = jailChannelMenu(selectedRoleId, 0, channels);
+      return interaction.editReply({ content: `Choose a jail channel for <@&${selectedRoleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`, embeds: [], components: [
+        new ActionRowBuilder().addComponents(channelMenu),
+        new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${selectedRoleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
+      ] });
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_role_control:')) {
+      const control = interaction.customId.split(':').at(-1);
+      const key = `${interaction.guildId}:${interaction.user.id}`;
+      const state = pendingChannelRolePickers.get(key);
+      if (!state) return interaction.editReply({ content: 'That role picker expired. Choose the role again from /config.', embeds: [], components: [] });
+      if (control === 'search') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:role_search:channel_role').setTitle('Search jail roles');
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_query').setLabel('Role name contains').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Leave empty to show all roles')));
+        await interaction.showModal(modal);
+        return true;
       }
-      await saveJailRoleChannel(interaction, client, roleId, selected);
-      return true;
+      if (control === 'clear_search') state.searchQuery = '';
+      else if (control === 'prev') state.page = Math.max(0, state.page - 1);
+      else if (control === 'next') state.page = Math.min(Math.max(0, Math.ceil(getFilteredRoleChoices(state).length / CONFIG_ROLE_PAGE_SIZE) - 1), state.page + 1);
+      pendingChannelRolePickers.set(key, state);
+      const picker = buildPaginatedRoleMenu(`jconfig:channel_role_page:${state.page}`, 'Choose a configured jail role', state);
+      return interaction.editReply({ content: `Choose the jail role whose channel you want to change. Page ${picker.page + 1} of ${picker.pageCount}.`, embeds: [], components: [
+        new ActionRowBuilder().addComponents(picker.menu),
+        buildRolePagerControls('jconfig:channel_role_control', state),
+      ] });
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_default:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
@@ -541,118 +525,96 @@ export default {
       return true;
     }
     if (interaction.customId === 'jconfig:role_action' && interaction.isStringSelectMenu()) {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const action = interaction.values[0];
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = current?.jail ?? {};
-      const pendingSelectionKey = `${interaction.guildId}:${interaction.user.id}`;
-      if (action === 'message_config') {
-        const embed = new EmbedBuilder().setColor(0x5865F2).setTitle('Jail message configuration')
-          .setDescription('Choose which message to edit. Placeholders are replaced automatically.')
-          .addFields(
-            { name: 'Jail message', value: (jail.jailAnnouncement || '{{user}} HAS BEEN JAILED').slice(0, 1000) },
-            { name: 'Unjail message', value: (jail.unjailAnnouncement || '{{user}} HAS BEEN UNJAILED').slice(0, 1000) },
-            { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'Not configured' },
-            { name: 'Jail placeholders', value: '`{{user}}` `{{server}}` `{{moderator}}` `{{role}}` `{{reason}}` `{{duration}}`' },
-            { name: 'Unjail placeholders', value: '`{{user}}` `{{server}}` `{{moderator}}` `{{roles}}`' },
-          );
-        const messageMenu = new StringSelectMenuBuilder().setCustomId('jconfig:message_choice').setPlaceholder('Choose a message to edit')
-          .addOptions(
-            { label: 'Jail message', value: 'jail_announcement', description: 'Customize the message when a member is jailed' },
-            { label: 'Unjail message', value: 'unjail_announcement', description: 'Customize the message when a member is released' },
-          );
-        const channels = await getSelectableChannels(interaction.guild, ChannelType.GuildText);
-        const picker = channels.length ? buildPaginatedChannelPicker('actionLogChannelId', 0, channels) : null;
-        return interaction.editReply({ content: picker?.content ?? 'No text channels were found for announcements.', embeds: [embed], components: [
-          new ActionRowBuilder().addComponents(messageMenu),
-          ...(picker ? [new ActionRowBuilder().addComponents(picker.menu)] : []),
-        ] });
-      }
-      if (action === 'set_action_log_channel') {
-        const channels = await getSelectableChannels(interaction.guild, ChannelType.GuildText);
-        if (!channels.length) return interaction.editReply({ content: 'No text channels were found in this server.', embeds: [], components: [] });
-        const picker = buildPaginatedChannelPicker('actionLogChannelId', 0, channels);
-        return interaction.editReply({ content: 'Choose the channel where jail and unjail announcements will be posted. ' + picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
-      }
       if (action === 'set_policeman' || action === 'add_jail_roles' || action === 'set_lawyer') {
         const allRoles = await interaction.guild.roles.fetch();
-        const roleChoices = [...allRoles.values()]
-          .filter(role => role.id !== interaction.guildId && !role.managed)
-          .sort((a, b) => a.name.localeCompare(b.name));
+        const roleChoices = [...allRoles.values()].filter(role => role.id !== interaction.guildId && !role.managed).sort((a, b) => a.name.localeCompare(b.name));
         if (!roleChoices.length) return interaction.editReply({ content: 'No selectable server roles were found.', embeds: [], components: [] });
-        const state = { roles: roleChoices, selectedIds: [], page: 0, mode: action === 'set_lawyer' ? 'single' : 'multiple' };
-        pendingRoleSelections.set(`${pendingSelectionKey}:${action}`, state);
+        const state = { roles: roleChoices, selectedIds: [], page: 0, mode: action === 'set_lawyer' ? 'single' : 'multiple', searchQuery: '' };
+        pendingRoleSelections.set(`${interaction.guildId}:${interaction.user.id}:${action}`, state);
         const placeholder = action === 'set_policeman' ? 'Choose policeman roles' : action === 'add_jail_roles' ? 'Choose jail roles to register' : 'Choose the lawyer role';
-        const picker = buildPaginatedRoleMenu(`jconfig:role_page:${action}:0`, placeholder, roleChoices, 0, [], { multiple: action !== 'set_lawyer', clearable: true });
+        const picker = buildPaginatedRoleMenu(`jconfig:role_page:${action}:0`, placeholder, state);
         const instructions = action === 'set_policeman'
-          ? 'Select policeman roles across as many pages as needed. Use Clear all selected to remove every selection; Save with none selected to clear all policeman roles.'
+          ? 'Select policeman roles across pages. Save with none selected to clear all policeman roles.'
           : action === 'add_jail_roles'
-            ? 'Select existing server roles to register as jail roles across as many pages as needed. They use the default jail channel unless assigned a different channel afterward.'
-            : 'Select one existing server role to use as the lawyer role. Use Clear all selected to remove the current choice before saving.';
+            ? 'Select existing server roles to register as jail roles across pages.'
+            : 'Select one existing server role to use as the lawyer role.';
         return interaction.editReply({ content: `${instructions} Page 1 of ${picker.pageCount}.`, embeds: [], components: [
           new ActionRowBuilder().addComponents(picker.menu),
+          buildRolePagerControls(`jconfig:role_control:${action}`, state, { clearSelection: true }),
           new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId(`jconfig:save_roles:${action}`).setLabel('Save').setStyle(ButtonStyle.Success),
             new ButtonBuilder().setCustomId(`jconfig:cancel_roles:${action}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
           ),
         ] });
       }
-      const configuredIds = action === 'set_jail_channel'
-        ? [...new Set((jail.roles ?? []).map(item => item?.roleId).filter(Boolean))]
-        : [...new Set([
-            ...(jail.roles ?? []).map(item => item?.roleId).filter(Boolean),
-            jail.lawyerRoleId,
-            ...(jail.policemanRoleIds ?? []),
-          ].filter(Boolean))];
+      const configuredIds = [...new Set([
+        ...(jail.roles ?? []).map(item => item?.roleId).filter(Boolean),
+        jail.lawyerRoleId,
+        ...(jail.policemanRoleIds ?? []),
+      ].filter(Boolean))];
       const configuredRoles = (await Promise.all(configuredIds.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
-      if (!configuredRoles.length) {
-        return interaction.editReply({
-          content: action === 'set_jail_channel'
-            ? 'No jail roles are configured yet. Run /setup-jail first.'
-            : 'There are no configured jail, lawyer, or policeman roles to remove.',
-          embeds: [], components: [],
-        });
-      }
-      if (action === 'set_jail_channel') {
-        const picker = buildPaginatedRoleMenu('jconfig:channel_role_page:0', 'Choose a configured jail role', configuredRoles, 0, [], { multiple: false, clearable: false });
-        return interaction.editReply({ content: `Select a configured jail role to assign a channel. Page 1 of ${picker.pageCount}.`, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
-      }
-      const removalState = { roles: configuredRoles, selectedIds: [], page: 0, mode: 'multiple' };
-      pendingRoleRemovals.set(pendingSelectionKey, removalState);
-      const removePicker = buildPaginatedRoleMenu('jconfig:remove_page:0', 'Choose configured roles to remove', configuredRoles, 0, [], { multiple: true, clearable: true,
-        descriptionForRole: role => [
-          (jail.roles ?? []).some(item => item?.roleId === role.id) ? 'Jail' : '',
-          jail.lawyerRoleId === role.id ? 'Lawyer' : '',
-          (jail.policemanRoleIds ?? []).includes(role.id) ? 'Policeman' : '',
-        ].filter(Boolean).join(' / '),
-      });
-      return interaction.editReply({ content: `Select configured roles across as many pages as needed. Selected: 0. Page 1 of ${removePicker.pageCount}.`, embeds: [], components: [
-        new ActionRowBuilder().addComponents(removePicker.menu),
+      if (!configuredRoles.length) return interaction.editReply({ content: 'There are no configured jail, lawyer, or policeman roles to remove.', embeds: [], components: [] });
+      const state = { roles: configuredRoles, selectedIds: [], page: 0, mode: 'multiple', searchQuery: '', descriptionForRole: role => [
+        (jail.roles ?? []).some(item => item?.roleId === role.id) ? 'Jail' : '',
+        jail.lawyerRoleId === role.id ? 'Lawyer' : '',
+        (jail.policemanRoleIds ?? []).includes(role.id) ? 'Policeman' : '',
+      ].filter(Boolean).join(' / ') };
+      pendingRoleRemovals.set(`${interaction.guildId}:${interaction.user.id}`, state);
+      const picker = buildPaginatedRoleMenu('jconfig:remove_page:0', 'Choose configured roles to remove', state);
+      return interaction.editReply({ content: `Select configured roles across pages. Selected: 0. Page 1 of ${picker.pageCount}.`, embeds: [], components: [
+        new ActionRowBuilder().addComponents(picker.menu),
+        buildRolePagerControls('jconfig:remove_control', state, { clearSelection: true }),
         new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('jconfig:remove_keep').setLabel('Remove from configuration only').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId('jconfig:remove_delete').setLabel('Remove and delete roles').setStyle(ButtonStyle.Danger),
         ),
       ] });
     }
-    const roleSelectionActions = ['add_jail_roles', 'set_lawyer', 'set_policeman'];
     const pendingSelectionKey = `${interaction.guildId}:${interaction.user.id}`;
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:role_page:')) {
       const [, , action, pageValue] = interaction.customId.split(':');
-      const key = `${interaction.guildId}:${interaction.user.id}:${action}`;
+      const key = `${pendingSelectionKey}:${action}`;
       const state = pendingRoleSelections.get(key);
       if (!state) return interaction.editReply({ content: 'That role selection expired. Open /config and try again.', embeds: [], components: [] });
-      updatePagedRoleSelection(state, Number.parseInt(pageValue, 10) || 0, interaction.values);
-      pendingRoleSelections.set(key, state);
+      state.page = Number.parseInt(pageValue, 10) || 0;
+      updatePagedRoleSelection(state, state.page, interaction.values);
       const placeholder = action === 'set_policeman' ? 'Choose policeman roles' : action === 'add_jail_roles' ? 'Choose jail roles to register' : 'Choose the lawyer role';
-      const picker = buildPaginatedRoleMenu(`jconfig:role_page:${action}:${state.page}`, placeholder, state.roles, state.page, state.selectedIds, { multiple: action !== 'set_lawyer', clearable: true });
-      const instructions = action === 'set_policeman'
-        ? `Select policeman roles across pages. Selected: ${state.selectedIds.length}. Save with none selected to clear all.`
-        : action === 'add_jail_roles'
-          ? `Select jail roles to register across pages. Selected: ${state.selectedIds.length}.`
-          : `Choose one lawyer role. ${state.selectedIds.length ? 'One role selected.' : 'No role selected.'}`;
-      return interaction.editReply({ content: `${instructions} Page ${picker.page + 1} of ${picker.pageCount}.`, embeds: [], components: [
+      const picker = buildPaginatedRoleMenu(`jconfig:role_page:${action}:${state.page}`, placeholder, state);
+      return interaction.editReply({ content: `Selected ${state.selectedIds.length} role(s). Page ${picker.page + 1} of ${picker.pageCount}.`, embeds: [], components: [
         new ActionRowBuilder().addComponents(picker.menu),
+        buildRolePagerControls(`jconfig:role_control:${action}`, state, { clearSelection: true }),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`jconfig:save_roles:${action}`).setLabel('Save').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`jconfig:cancel_roles:${action}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+        ),
+      ] });
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:role_control:')) {
+      const [, , , action, control] = interaction.customId.split(':');
+      const key = `${pendingSelectionKey}:${action}`;
+      const state = pendingRoleSelections.get(key);
+      if (!state) return interaction.editReply({ content: 'That role selection expired. Open /config and try again.', embeds: [], components: [] });
+      if (control === 'search') {
+        const modal = new ModalBuilder().setCustomId(`jconfigmodal:role_search:${action}`).setTitle('Search server roles');
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_query').setLabel('Role name contains').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Leave empty to show all roles')));
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (control === 'clear') state.selectedIds = [];
+      else if (control === 'clear_search') { state.searchQuery = ''; state.page = 0; }
+      else {
+        const pageCount = Math.max(1, Math.ceil(getFilteredRoleChoices(state).length / CONFIG_ROLE_PAGE_SIZE));
+        state.page = Math.min(Math.max(0, state.page + (control === 'prev' ? -1 : 1)), pageCount - 1);
+      }
+      const placeholder = action === 'set_policeman' ? 'Choose policeman roles' : action === 'add_jail_roles' ? 'Choose jail roles to register' : 'Choose the lawyer role';
+      const picker = buildPaginatedRoleMenu(`jconfig:role_page:${action}:${state.page}`, placeholder, state);
+      return interaction.editReply({ content: `Selected ${state.selectedIds.length} role(s). Page ${picker.page + 1} of ${picker.pageCount}.`, embeds: [], components: [
+        new ActionRowBuilder().addComponents(picker.menu),
+        buildRolePagerControls(`jconfig:role_control:${action}`, state, { clearSelection: true }),
         new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId(`jconfig:save_roles:${action}`).setLabel('Save').setStyle(ButtonStyle.Success),
           new ButtonBuilder().setCustomId(`jconfig:cancel_roles:${action}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
@@ -660,37 +622,45 @@ export default {
       ] });
     }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:remove_page:')) {
-      const pageValue = interaction.customId.split(':').at(-1);
-      const key = `${interaction.guildId}:${interaction.user.id}`;
-      const state = pendingRoleRemovals.get(key);
+      const state = pendingRoleRemovals.get(pendingSelectionKey);
       if (!state) return interaction.editReply({ content: 'That role selection expired. Open /config and try again.', embeds: [], components: [] });
-      updatePagedRoleSelection(state, Number.parseInt(pageValue, 10) || 0, interaction.values);
-      pendingRoleRemovals.set(key, state);
-      const picker = buildPaginatedRoleMenu(`jconfig:remove_page:${state.page}`, 'Choose configured roles to remove', state.roles, state.page, state.selectedIds, { multiple: true, clearable: true });
+      state.page = Number.parseInt(interaction.customId.split(':').at(-1), 10) || 0;
+      updatePagedRoleSelection(state, state.page, interaction.values);
+      const picker = buildPaginatedRoleMenu(`jconfig:remove_page:${state.page}`, 'Choose configured roles to remove', state);
       return interaction.editReply({ content: `Selected ${state.selectedIds.length} role(s). Page ${picker.page + 1} of ${picker.pageCount}. Choose whether to unassign them only or also delete the Discord roles.`, embeds: [], components: [
         new ActionRowBuilder().addComponents(picker.menu),
+        buildRolePagerControls('jconfig:remove_control', state, { clearSelection: true }),
         new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId('jconfig:remove_keep').setLabel('Remove from configuration only').setStyle(ButtonStyle.Secondary),
           new ButtonBuilder().setCustomId('jconfig:remove_delete').setLabel('Remove and delete roles').setStyle(ButtonStyle.Danger),
         ),
       ] });
     }
-    if (interaction.isRoleSelectMenu() && roleSelectionActions.some(action => interaction.customId === `jconfig:${action === 'set_lawyer' ? 'lawyer_role' : action === 'set_policeman' ? 'policeman_roles' : action}`)) {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
-      const action = interaction.customId === 'jconfig:add_jail_roles' ? 'add_jail_roles' : interaction.customId === 'jconfig:lawyer_role' ? 'set_lawyer' : 'set_policeman';
-      const selectedIds = [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
-      pendingRoleSelections.set(`${pendingSelectionKey}:${action}`, selectedIds);
-      const selectedText = selectedIds.length ? selectedIds.map(id => `<@&${id}>`).join(', ') : 'None selected';
-      return interaction.editReply({
-        content: `Selected role(s): ${selectedText}\\nPress **Save** to apply this change.`,
-        embeds: [],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`jconfig:save_roles:${action}`).setLabel('Save').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`jconfig:cancel_roles:${action}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
-          ),
-        ],
-      });
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:remove_control:')) {
+      const control = interaction.customId.split(':').at(-1);
+      const state = pendingRoleRemovals.get(pendingSelectionKey);
+      if (!state) return interaction.editReply({ content: 'That role selection expired. Open /config and try again.', embeds: [], components: [] });
+      if (control === 'search') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:role_search:remove').setTitle('Search configured roles');
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('role_query').setLabel('Role name contains').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(100).setPlaceholder('Leave empty to show all roles')));
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (control === 'clear') state.selectedIds = [];
+      else if (control === 'clear_search') { state.searchQuery = ''; state.page = 0; }
+      else {
+        const pageCount = Math.max(1, Math.ceil(getFilteredRoleChoices(state).length / CONFIG_ROLE_PAGE_SIZE));
+        state.page = Math.min(Math.max(0, state.page + (control === 'prev' ? -1 : 1)), pageCount - 1);
+      }
+      const picker = buildPaginatedRoleMenu(`jconfig:remove_page:${state.page}`, 'Choose configured roles to remove', state);
+      return interaction.editReply({ content: `Selected ${state.selectedIds.length} role(s). Page ${picker.page + 1} of ${picker.pageCount}.`, embeds: [], components: [
+        new ActionRowBuilder().addComponents(picker.menu),
+        buildRolePagerControls('jconfig:remove_control', state, { clearSelection: true }),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('jconfig:remove_keep').setLabel('Remove from configuration only').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId('jconfig:remove_delete').setLabel('Remove and delete roles').setStyle(ButtonStyle.Danger),
+        ),
+      ] });
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:cancel_roles:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
@@ -787,21 +757,6 @@ export default {
       await logConfigSave(interaction, jail, 'Policeman roles', `**Role count:** ${roleIds.length}\n**Roles:** ${formatRoleMentions(roleIds, 2500)}`);
       return interaction.editReply({ content: `Saved ${roleIds.length} policeman role(s): ${formatRoleMentions(roleIds, 1000)}.`, embeds: [], components: [] });
     }
-    if (interaction.customId === 'jconfig:remove_roles' && interaction.isStringSelectMenu()) {
-      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
-      if (!interaction.values.length) return interaction.editReply({ content: 'No roles selected. Nothing was changed.', embeds: [], components: [] });
-      pendingRoleRemovals.set(`${interaction.guildId}:${interaction.user.id}`, { roles: interaction.values.map(id => ({ id, name: id })), selectedIds: interaction.values, page: 0, mode: 'multiple' });
-      return interaction.editReply({
-        content: `Selected ${interaction.values.length} role(s). Choose whether to unassign them only or also delete the Discord roles.`,
-        embeds: [],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('jconfig:remove_keep').setLabel('Remove from configuration only').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('jconfig:remove_delete').setLabel('Remove and delete roles').setStyle(ButtonStyle.Danger),
-          ),
-        ],
-      });
-    }
     if ((interaction.customId === 'jconfig:remove_keep' || interaction.customId === 'jconfig:remove_delete') && interaction.isButton()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const key = `${interaction.guildId}:${interaction.user.id}`;
@@ -866,6 +821,47 @@ export default {
       return true;
     }
 
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:role_search:')) {
+      const kind = interaction.customId.slice('jconfigmodal:role_search:'.length);
+      const query = interaction.fields.getTextInputValue('role_query').trim();
+      if (kind === 'remove') {
+        const state = pendingRoleRemovals.get(pendingSelectionKey);
+        if (!state) return interaction.reply({ content: 'That role selection expired. Open /config and try again.', flags: MessageFlags.Ephemeral });
+        state.searchQuery = query; state.page = 0;
+        const picker = buildPaginatedRoleMenu('jconfig:remove_page:0', 'Choose configured roles to remove', state);
+        return interaction.update({ content: `Search: ${query || 'All roles'}. Selected ${state.selectedIds.length} role(s). Page 1 of ${picker.pageCount}.`, embeds: [], components: [
+          new ActionRowBuilder().addComponents(picker.menu),
+          buildRolePagerControls('jconfig:remove_control', state, { clearSelection: true }),
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('jconfig:remove_keep').setLabel('Remove from configuration only').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('jconfig:remove_delete').setLabel('Remove and delete roles').setStyle(ButtonStyle.Danger),
+          ),
+        ] });
+      }
+      if (kind === 'channel_role') {
+        const state = pendingChannelRolePickers.get(pendingSelectionKey);
+        if (!state) return interaction.reply({ content: 'That role picker expired. Choose the role again from /config.', flags: MessageFlags.Ephemeral });
+        state.searchQuery = query; state.page = 0;
+        const picker = buildPaginatedRoleMenu('jconfig:channel_role_page:0', 'Choose a configured jail role', state);
+        return interaction.update({ content: `Search: ${query || 'All roles'}. Choose the jail role whose channel you want to change. Page 1 of ${picker.pageCount}.`, embeds: [], components: [
+          new ActionRowBuilder().addComponents(picker.menu),
+          buildRolePagerControls('jconfig:channel_role_control', state),
+        ] });
+      }
+      const state = pendingRoleSelections.get(`${pendingSelectionKey}:${kind}`);
+      if (!state) return interaction.reply({ content: 'That role selection expired. Open /config and try again.', flags: MessageFlags.Ephemeral });
+      state.searchQuery = query; state.page = 0;
+      const placeholder = kind === 'set_policeman' ? 'Choose policeman roles' : kind === 'add_jail_roles' ? 'Choose jail roles to register' : 'Choose the lawyer role';
+      const picker = buildPaginatedRoleMenu(`jconfig:role_page:${kind}:0`, placeholder, state);
+      return interaction.update({ content: `Search: ${query || 'All roles'}. Selected ${state.selectedIds.length} role(s). Page 1 of ${picker.pageCount}.`, embeds: [], components: [
+        new ActionRowBuilder().addComponents(picker.menu),
+        buildRolePagerControls(`jconfig:role_control:${kind}`, state, { clearSelection: true }),
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`jconfig:save_roles:${kind}`).setLabel('Save').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`jconfig:cancel_roles:${kind}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+        ),
+      ] });
+    }
     if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
         await interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
