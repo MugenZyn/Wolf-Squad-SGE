@@ -127,20 +127,21 @@ export default {
       jail.roles = (jail.roles ?? []).filter(item => !removable.includes(item?.roleId));
       if (removable.includes(jail.lawyerRoleId)) jail.lawyerRoleId = null;
       jail.policemanRoleIds = (jail.policemanRoleIds ?? []).filter(id => !removable.includes(id));
+      let rolesToDelete = [];
+      if (interaction.customId === 'jconfig:remove_delete') {
+        const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
+        if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: 'I need Manage Roles permission to delete Discord roles.', flags: MessageFlags.Ephemeral });
+        rolesToDelete = (await Promise.all(removable.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
+        const blocked = rolesToDelete.filter(role => role.managed || botMember.roles.highest.comparePositionTo(role) <= 0);
+        if (blocked.length) return interaction.reply({ content: `I cannot delete these roles. Move my highest role above them and check that they are not managed roles: ${blocked.map(role => role.name).join(', ')}.`, flags: MessageFlags.Ephemeral });
+      }
       // Remove only the selected roles' old jail-resource overwrites; leave every other role and channel setting intact.
       for (const channelId of [jail.categoryId, jail.channelId, jail.evidenceForumId].filter(Boolean)) {
         const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
         if (!channel?.permissionOverwrites) continue;
         for (const id of removable) await channel.permissionOverwrites.delete(id, 'Role unassigned from jail configuration').catch(() => null);
       }
-      if (interaction.customId === 'jconfig:remove_delete') {
-        const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
-        if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: 'I need Manage Roles permission to delete Discord roles.', flags: MessageFlags.Ephemeral });
-        for (const id of removable) {
-          const role = await interaction.guild.roles.fetch(id).catch(() => null);
-          if (role && botMember.roles.highest.comparePositionTo(role) > 0) await role.delete('Role removed from jail configuration by an administrator');
-        }
-      }
+      for (const role of rolesToDelete) await role.delete('Role removed from jail configuration by an administrator');
       await updateGuildConfig(client, interaction.guildId, { jail });
       pendingRoleRemovals.delete(key);
       return interaction.update({ content: `Removed ${removable.length} role(s) from jail configuration${interaction.customId === 'jconfig:remove_delete' ? ' and deleted the Discord roles where permitted' : ''}.`, embeds: [], components: [] });
