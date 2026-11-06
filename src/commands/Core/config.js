@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelSelectMenuBuilder, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
@@ -397,9 +397,10 @@ export default {
         const picker = buildPaginatedChannelPicker(setting.key, 0, channels);
         return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
       }
-      const menu = new ChannelSelectMenuBuilder().setCustomId(`jconfig:set_channel:${setting.key}`)
-        .setPlaceholder(`Choose ${setting.label.toLowerCase()}`).setChannelTypes(setting.type).setMinValues(1).setMaxValues(1);
-      return interaction.editReply({ content: `Choose the ${setting.label.toLowerCase()}.`, embeds: [], components: [new ActionRowBuilder().addComponents(menu)] });
+      const channels = await getSelectableChannels(interaction.guild, setting.type);
+      if (!channels.length) return interaction.editReply({ content: `No ${setting.label.toLowerCase()} options were found in this server.`, embeds: [], components: [] });
+      const picker = buildPaginatedChannelPicker(setting.key, 0, channels);
+      return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
     }
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:pick_channel:')) {
       const [, , key, pageValue] = interaction.customId.split(':');
