@@ -9,7 +9,7 @@ export default {
     .setName('setup-jail')
     .setDescription('Create or configure a jail channel and evidence forum.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addStringOption(o => o.setName('jail_role_id').setDescription('Role allowed to use the jail channel.').setRequired(true).setMinLength(17).setMaxLength(20))
+    .addRoleOption(o => o.setName('jail_role').setDescription('Select the role allowed to use the jail channel.').setRequired(true))
     .addStringOption(o => o.setName('channel_name').setDescription('Name for a new jail channel.').setMaxLength(100))
     .addStringOption(o => o.setName('jail_channel_id').setDescription('Use an existing text channel as the jail channel.').setMinLength(17).setMaxLength(20))
     .addStringOption(o => o.setName('category_name').setDescription('Name for a new category (when creating a channel).').setMaxLength(100))
@@ -22,7 +22,7 @@ export default {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
-    const jailRoleId = interaction.options.getString('jail_role_id', true).trim();
+    const jailRole = interaction.options.getRole('jail_role', true);
     const lawyerRoleId = interaction.options.getString('lawyer_role_id')?.trim() || null;
     const categoryId = interaction.options.getString('category_id')?.trim();
     const existingChannelId = interaction.options.getString('jail_channel_id')?.trim();
@@ -32,11 +32,10 @@ export default {
     const forumName = (interaction.options.getString('evidence_forum_name') || 'jail-evidence').trim().toLowerCase().replace(/\s+/g, '-');
     const reason = `Jail setup requested by ${user.tag} (${user.id})`;
 
-    if (!ID_PATTERN.test(jailRoleId) || (lawyerRoleId && !ID_PATTERN.test(lawyerRoleId)) || (categoryId && !ID_PATTERN.test(categoryId)) || (existingChannelId && !ID_PATTERN.test(existingChannelId)) || (forumId && !ID_PATTERN.test(forumId))) return interaction.editReply('One of the supplied IDs is invalid.');
+    if ((lawyerRoleId && !ID_PATTERN.test(lawyerRoleId)) || (categoryId && !ID_PATTERN.test(categoryId)) || (existingChannelId && !ID_PATTERN.test(existingChannelId)) || (forumId && !ID_PATTERN.test(forumId))) return interaction.editReply('One of the supplied IDs is invalid.');
     if (!existingChannelId && !requestedChannelName) return interaction.editReply('Provide channel_name to create a jail channel, or jail_channel_id to use an existing one.');
 
-    const jailRole = await guild.roles.fetch(jailRoleId).catch(() => null);
-    if (!jailRole || jailRole.id === guild.id || jailRole.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply('The jail role must exist, cannot be @everyone, and cannot have Administrator permission.');
+    if (!jailRole || jailRole.guild.id !== guild.id || jailRole.id === guild.id || jailRole.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply('The jail role must be a server role, cannot be @everyone, and cannot have Administrator permission.');
     const lawyerRole = lawyerRoleId ? await guild.roles.fetch(lawyerRoleId).catch(() => null) : null;
     if (lawyerRoleId && (!lawyerRole || lawyerRole.id === guild.id)) return interaction.editReply('I could not find the lawyer role.');
     const botMember = guild.members.me ?? await guild.members.fetchMe();
