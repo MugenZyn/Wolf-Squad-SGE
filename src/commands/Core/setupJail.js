@@ -359,7 +359,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
 
     return interaction.editReply(managePermissions
       ? 'Jail system setup completed. The bot configured the jail channel permissions.'
-      : 'Jail system setup completed. Existing channel permissions and channel placement were left unchanged. Make sure the bot already has access to the jail, evidence, and logs channels.');
+      : 'Jail system setup completed. Make sure the bot already has access to the jail, evidence, and logs channels.');
 }
 
 const setupSessions = new Map();
