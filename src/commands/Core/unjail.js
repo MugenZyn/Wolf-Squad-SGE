@@ -117,13 +117,11 @@ export default {
     const unjailAnnouncement = renderAnnouncement(currentJail.unjailAnnouncement || '{{user}} HAS BEEN UNJAILED', {
       user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`, roles: removedRoleNames.join(', '),
     });
-    const announcementChannelIds = new Set();
-    for (const roleId of removed) {
-      const roleConfig = (currentJail.roles ?? []).find(item => item?.roleId === roleId);
-      const channelId = roleConfig?.channelId || currentJail.channelId;
-      if (channelId) announcementChannelIds.add(channelId);
-    }
-    if (currentJail.actionLogChannelId) announcementChannelIds.add(currentJail.actionLogChannelId);
+    // Post the unjail announcement both where the command was run and
+    // in the configured announcements channel. Do not post it in private jail channels.
+    const announcementChannelIds = new Set(
+      [interaction.channelId, currentJail.actionLogChannelId].filter(Boolean)
+    );
     for (const channelId of announcementChannelIds) {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: unjailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
