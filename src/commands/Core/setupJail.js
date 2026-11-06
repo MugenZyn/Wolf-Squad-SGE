@@ -443,6 +443,28 @@ function formatRoleMentions(ids, maxLength = 950) {
   return `${mentions.join(', ')}${remaining ? ` …and ${remaining} more` : ''}` || 'None';
 }
 
+function buildTextFields(name, items, formatter, emptyValue = 'None', maxLength = 950, separator = ', ') {
+  if (!items?.length) return [{ name, value: emptyValue, inline: false }];
+  const chunks = [];
+  let current = '';
+  for (const item of items) {
+    const rendered = String(formatter(item));
+    const next = current ? `${current}${separator}${rendered}` : rendered;
+    if (current && next.length > maxLength) {
+      chunks.push(current);
+      current = rendered;
+    } else {
+      current = next;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.map((value, index) => ({
+    name: chunks.length > 1 ? `${name} (${index + 1}/${chunks.length})` : name,
+    value,
+    inline: false,
+  }));
+}
+
 function setupPanelEmbed(session) {
   const s = session.selections;
   const jailRoleIds = s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds;
@@ -457,9 +479,9 @@ function setupPanelEmbed(session) {
         : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. The announcement channel is optional. Skip permission edits is available only after explicitly selecting an existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.')
       : 'Choose the roles used by the jail system. Jail and lawyer roles are created automatically if left empty.')
     .addFields(
-      { name: 'Jail roles', value: jailRoleIds.length ? formatRoleMentions(jailRoleIds) : 'Automatic (SGE - JAIL)', inline: false },
+      ...buildTextFields('Jail roles', jailRoleIds, id => `<@&${id}>`, 'Automatic (SGE - JAIL)'),
       { name: 'Lawyer role', value: lawyerRoleId ? `<@&${lawyerRoleId}>` : 'Automatic (SGE - LAWYER)', inline: true },
-      { name: 'Policeman roles', value: policemanRoleIds.length ? formatRoleMentions(policemanRoleIds) : 'None', inline: true },
+      ...buildTextFields('Policeman roles', policemanRoleIds, id => `<@&${id}>`, 'None'),
       { name: 'Category', value: s.categoryId ? `<#${s.categoryId}>` : 'Create automatically (JAIL)', inline: true },
       { name: 'Default jail channel', value: s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create automatically (jail)', inline: true },
       { name: 'Evidence forum', value: s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create automatically (jail-evidence)', inline: true },
