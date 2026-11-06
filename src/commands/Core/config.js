@@ -337,10 +337,14 @@ export default {
 
   async handleComponent(interaction, client) {
     const isComponent = interaction.isButton?.() || interaction.isStringSelectMenu?.() || interaction.isRoleSelectMenu?.() || interaction.isChannelSelectMenu?.();
-    const opensModal = interaction.isStringSelectMenu?.() && (
+    const opensModal = (interaction.isStringSelectMenu?.() && (
       interaction.customId === 'jconfig:message_choice' ||
       (interaction.customId?.startsWith('jconfig:') && SETTINGS.some(setting => setting.value === interaction.values?.[0]))
-    );
+    )) || (interaction.isButton?.() && (
+      interaction.customId?.startsWith('jconfig:role_control:') && interaction.customId.endsWith(':search') ||
+      interaction.customId?.startsWith('jconfig:remove_control:') && interaction.customId.endsWith(':search') ||
+      interaction.customId?.startsWith('jconfig:channel_role_control:') && interaction.customId.endsWith(':search')
+    ));
     if (isComponent && interaction.customId?.startsWith('jconfig:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
         await interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
@@ -594,7 +598,7 @@ export default {
       ] });
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:role_control:')) {
-      const [, , , action, control] = interaction.customId.split(':');
+      const [, , action, control] = interaction.customId.split(':');
       const key = `${pendingSelectionKey}:${action}`;
       const state = pendingRoleSelections.get(key);
       if (!state) return interaction.editReply({ content: 'That role selection expired. Open /config and try again.', embeds: [], components: [] });
@@ -822,6 +826,7 @@ export default {
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:role_search:')) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const kind = interaction.customId.slice('jconfigmodal:role_search:'.length);
       const query = interaction.fields.getTextInputValue('role_query').trim();
       if (kind === 'remove') {
