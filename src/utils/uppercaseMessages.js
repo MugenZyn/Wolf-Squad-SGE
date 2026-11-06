@@ -6,7 +6,11 @@ function uppercaseText(value) {
     const marker = `\u0000KEEP${preserved.length}\u0000`;
     preserved.push(url);
     return marker;
-  }).replace(/<t:\\d+(?::[tTdDfFR])?>/g, timestamp => {
+  }).replace(/\\\\n/g, escape => {
+    const marker = `\\u0000KEEP${preserved.length}\\u0000`;
+    preserved.push(escape);
+    return marker;
+  }).replace(/<t:\\\\d+(?::[tTdDfFR])?>/g, timestamp => {
     const marker = `\u0000KEEP${preserved.length}\u0000`;
     preserved.push(timestamp);
     return marker;
