@@ -42,7 +42,7 @@ export default {
     .addUserOption(o => o.setName('user').setDescription('Member to jail.').setRequired(true))
     .addIntegerOption(o => o.setName('duration').setDescription('Sentence length in seconds. Leave blank to use the configured default (infinite by default).').setMinValue(1).setMaxValue(2147483647))
     .addStringOption(o => o.setName('message').setDescription('Optional extra text for the evidence post.').setMaxLength(1000))
-    .addStringOption(o => o.setName('reason').setDescription('Reason for the jail sentence.').setRequired(true).setMaxLength(1000)),
+    .addStringOption(o => o.setName('reason').setDescription('Reason for the jail sentence.').setRequired(false).setMaxLength(1000)),
 
   async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
@@ -106,7 +106,7 @@ export default {
       ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
       : [];
     const addon = interaction.options.getString('message')?.trim() || jail.defaultMessage?.trim() || '';
-    const jailReason = interaction.options.getString('reason', true).trim();
+    const jailReason = interaction.options.getString('reason')?.trim() || 'None';
     const requestedSeconds = interaction.options.getInteger('duration');
     const configuredDefault = jail.defaultSentenceSeconds ?? legacySentenceSeconds(jail.defaultDuration);
     const sentenceSeconds = requestedSeconds ?? configuredDefault;
