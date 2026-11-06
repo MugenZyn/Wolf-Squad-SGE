@@ -41,6 +41,7 @@ export default {
     }
     return false;
   },
+};
 
 async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.inGuild() || !interaction.guild) return interaction.reply({ content: 'This command can only be used inside a server.', flags: MessageFlags.Ephemeral });
@@ -206,18 +207,17 @@ function setupPanelText(session) {
     '**Jail setup** — choose the resources below, then press Save.',
     `Jail role: ${s.jailRoleId ? `<@&${s.jailRoleId}>` : 'Not selected (required)'}`,
     `Lawyer role: ${s.lawyerRoleId ? `<@&${s.lawyerRoleId}>` : 'None'}`,
-    `Category: ${s.categoryId ? `<#${s.categoryId}>` : 'Create default JAIL category'}`,
+    `Category: ${s.categoryId ? `<#${s.categoryId}>` : (s.jailChannelId ? 'Use the selected channel category (if any)' : 'Create default JAIL category')}`,
     `Jail channel: ${s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create default jail channel'}`,
     `Evidence forum: ${s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create default jail-evidence forum'}`,
     'Selections are only applied when you save.'
-  ].join('\\n');
+  ].join('\n');
 }
 
 function buildSetupPanel(token) {
   return [
     new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleId`).setPlaceholder('1. Select required jail role').setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('2. Select optional lawyer role').setMinValues(0).setMaxValues(1)),
-    new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:categoryId`).setPlaceholder('3. Select existing category').setChannelTypes(ChannelType.GuildCategory).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:jailChannelId`).setPlaceholder('4. Select existing jail channel').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('5. Select existing evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
     new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:save`).setLabel('Save setup').setStyle(ButtonStyle.Success)),
