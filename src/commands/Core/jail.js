@@ -51,7 +51,7 @@ function buildJailRoleMenu(token, roles, page, searchQuery = '') {
   return {
     menu: new StringSelectMenuBuilder().setCustomId(`choose_jail_role:${token}:${safePage}`)
       .setPlaceholder(`Choose a jail role (page ${safePage + 1}/${pageCount})`)
-      .setMinValues(1).setMaxValues(1).addOptions(options),
+      .setMinValues(0).setMaxValues(1).addOptions(options),
     page: safePage, pageCount, filtered,
   };
 }
