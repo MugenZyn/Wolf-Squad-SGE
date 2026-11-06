@@ -290,8 +290,6 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       if (category) for (const role of uniqueJailRoles) await category.permissionOverwrites.edit(role.id, { ViewChannel: true }, reason);
     }
 
-    const existingRoleIds = new Set((existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean));
-    const combinedRoleIds = new Set([...existingRoleIds, ...uniqueJailRoles.map(role => role.id)]);
 
     const botRoleIds = new Set(botMember.roles.cache.keys());
     const categoryOverwrites = managePermissions && category
@@ -396,7 +394,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       embeds: [{
         color: 0x2B8A3E,
         title: 'Command executed: /setup-jail',
-        description: `**Staff:** <@${user.id}> (${user.id})\n**Jail roles:** ${uniqueJailRoles.map(role => `<@&${role.id}>`).join(', ')}\n**Jail channel:** <#${jailChannel.id}>\n**Evidence forum:** <#${evidenceForum.id}>\n**Logs channel:** <#${logsChannel.id}>`,
+        description: `**Staff:** <@${user.id}> (${user.id})\n**Jail role count:** ${uniqueJailRoles.length}\n**Jail roles:** ${formatRoleMentions(uniqueJailRoles.map(role => role.id), 2400)}\n**Jail channel:** <#${jailChannel.id}>\n**Evidence forum:** <#${evidenceForum.id}>\n**Logs channel:** <#${logsChannel.id}>`,
         timestamp: new Date().toISOString(),
       }],
       allowedMentions: { parse: [] },
