@@ -195,9 +195,18 @@ async function getJailChannelOptions(guild, jail = {}) {
     jail.channelId,
     ...(jail.roles ?? []).map(item => item?.channelId),
   ].filter(Boolean));
+  const jailRoleIds = new Set((jail.roles ?? []).map(item => item?.roleId).filter(Boolean));
+  const hasJailRoleOverwrite = channel => {
+    const directOverwrite = channel.permissionOverwrites?.cache?.some(overwrite => jailRoleIds.has(overwrite.id));
+    const categoryOverwrite = channel.parent?.permissionOverwrites?.cache?.some(overwrite => jailRoleIds.has(overwrite.id));
+    return Boolean(directOverwrite || categoryOverwrite);
+  };
   return channels.filter(channel =>
-    channel.type === ChannelType.GuildText &&
-    (configuredIds.has(channel.id) || (categoryId && channel.parentId === categoryId))
+    channel.type === ChannelType.GuildText && (
+      configuredIds.has(channel.id) ||
+      (categoryId && channel.parentId === categoryId) ||
+      hasJailRoleOverwrite(channel)
+    )
   ).sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -287,7 +296,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
   if (channelId) {
     const selectedChannel = await interaction.guild.channels.fetch(channelId).catch(() => null);
     const allowedJailChannels = await getJailChannelOptions(interaction.guild, jail);
-    if (!selectedChannel || !allowedJailChannels.some(channel => channel.id === channelId)) return interaction.editReply({ content: 'Choose one of the available jail channels from the configured jail category.', embeds: [], components: [] });
+    if (!selectedChannel || selectedChannel.type !== ChannelType.GuildText || !allowedJailChannels.some(channel => channel.id === channelId)) return interaction.editReply({ content: 'That channel is not registered as a jail channel. Use a channel in the jail category, the default jail channel, or a channel with jail-role permissions.', embeds: [], components: [] });
     roles[index] = { ...roles[index], roleId, channelId };
   } else {
     roles[index] = { ...roles[index], roleId, channelId: null };
