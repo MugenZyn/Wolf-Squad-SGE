@@ -1,5 +1,5 @@
 import {
-  ActionRowBuilder, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits, RoleSelectMenuBuilder,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
@@ -10,6 +10,8 @@ const SETTINGS = [
   { label: 'Evidence messages', value: 'evidence_count', description: 'Number of messages to forward (1–5)' },
   { label: 'Default evidence note', value: 'default_message', description: 'Text shown in evidence; CLEAR removes it' },
 ];
+
+const pendingRoleRemovals = new Map();
 
 function formatDuration(value) {
   return value == null ? 'Infinite' : `${Number(value).toLocaleString()} seconds`;
@@ -33,7 +35,15 @@ function panelPayload(jail) {
       .setPlaceholder(`Change ${setting.label}`)
       .addOptions([{ label: setting.label, value: setting.value, description: setting.description }]),
   ));
-  menus.push(new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId('jconfig:policeman_roles').setPlaceholder('Choose policeman roles (multiple allowed)').setMinValues(0).setMaxValues(25)));
+  menus.push(new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('jconfig:role_action')
+      .setPlaceholder('Manage configured roles')
+      .addOptions(
+        { label: 'Choose policeman roles', value: 'set_policeman', description: 'Select multiple roles; choose none to clear' },
+        { label: 'Remove roles from jail configuration', value: 'remove_roles', description: 'Unassign jail, lawyer, or policeman roles' },
+      ),
+  ));
   return { embeds: [embed], components: menus, flags: MessageFlags.Ephemeral };
 }
 
@@ -54,23 +64,78 @@ export default {
   },
 
   async handleComponent(interaction, client) {
+    if (interaction.customId === 'jconfig:role_action' && interaction.isStringSelectMenu()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const action = interaction.values[0];
+      const menu = new RoleSelectMenuBuilder()
+        .setCustomId(action === 'set_policeman' ? 'jconfig:policeman_roles' : 'jconfig:remove_roles')
+        .setMinValues(0)
+        .setMaxValues(25)
+        .setPlaceholder(action === 'set_policeman' ? 'Choose policeman roles (multiple allowed)' : 'Choose configured roles to remove');
+      return interaction.update({
+        content: action === 'set_policeman'
+          ? 'Select the policeman roles to authorize. Select none and submit to clear all policeman roles; no role will be created.'
+          : 'Select one or more configured jail, lawyer, or policeman roles, then choose whether to only unassign them or also delete the Discord roles.',
+        embeds: [],
+        components: [new ActionRowBuilder().addComponents(menu)],
+      });
+    }
     if (interaction.customId === 'jconfig:policeman_roles' && interaction.isRoleSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
-      let roleIds = interaction.values;
-      if (!roleIds.length) {
-        const guild = interaction.guild;
-        const botMember = guild.members.me ?? await guild.members.fetchMe();
-        if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: 'I need Manage Roles permission to create the default policeman role.', flags: MessageFlags.Ephemeral });
-        await guild.roles.fetch();
-        const role = guild.roles.cache.find(item => item.name === 'SGE - POLICEMAN') || await guild.roles.create({ name: 'SGE - POLICEMAN', reason: 'Default policeman role selected from /config' });
-        if (botMember.roles.highest.comparePositionTo(role) <= 0) return interaction.reply({ content: 'Move my highest role above SGE - POLICEMAN, then select it again.', flags: MessageFlags.Ephemeral });
-        roleIds = [role.id];
-      }
+      const roleIds = interaction.values;
       const jail = { ...(current.jail ?? {}), policemanRoleIds: roleIds };
       await updateGuildConfig(client, interaction.guildId, { jail });
-      return interaction.reply({ content: `Saved ${roleIds.length} policeman role(s): ${roleIds.map(id => `<@&${id}>`).join(', ')}.`, flags: MessageFlags.Ephemeral });
+      return interaction.update({ content: `Saved ${roleIds.length} policeman role(s): ${roleIds.length ? roleIds.map(id => `<@&${id}>`).join(', ') : 'None'}.`, embeds: [], components: [] });
+    }
+    if (interaction.customId === 'jconfig:remove_roles' && interaction.isRoleSelectMenu()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      if (!interaction.values.length) return interaction.update({ content: 'No roles selected. Nothing was changed.', embeds: [], components: [] });
+      pendingRoleRemovals.set(`${interaction.guildId}:${interaction.user.id}`, interaction.values);
+      return interaction.update({
+        content: `Selected ${interaction.values.length} role(s). Choose whether to unassign them only or also delete the Discord roles.`,
+        embeds: [],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('jconfig:remove_keep').setLabel('Remove from configuration only').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('jconfig:remove_delete').setLabel('Remove and delete roles').setStyle(ButtonStyle.Danger),
+          ),
+        ],
+      });
+    }
+    if ((interaction.customId === 'jconfig:remove_keep' || interaction.customId === 'jconfig:remove_delete') && interaction.isButton()) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const key = `${interaction.guildId}:${interaction.user.id}`;
+      const selected = pendingRoleRemovals.get(key) ?? [];
+      if (!selected.length) return interaction.update({ content: 'That role selection expired. Open /config and try again.', embeds: [], components: [] });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current.jail ?? {}) };
+      const configured = new Set([
+        ...(jail.roles ?? []).map(item => item?.roleId).filter(Boolean),
+        jail.lawyerRoleId,
+        ...(jail.policemanRoleIds ?? []),
+      ]);
+      const removable = selected.filter(id => configured.has(id));
+      if (!removable.length) {
+        pendingRoleRemovals.delete(key);
+        return interaction.update({ content: 'None of the selected roles are currently configured. Nothing was changed.', embeds: [], components: [] });
+      }
+      jail.roles = (jail.roles ?? []).filter(item => !removable.includes(item?.roleId));
+      if (removable.includes(jail.lawyerRoleId)) jail.lawyerRoleId = null;
+      jail.policemanRoleIds = (jail.policemanRoleIds ?? []).filter(id => !removable.includes(id));
+      if (interaction.customId === 'jconfig:remove_delete') {
+        const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
+        if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: 'I need Manage Roles permission to delete Discord roles.', flags: MessageFlags.Ephemeral });
+        for (const id of removable) {
+          const role = await interaction.guild.roles.fetch(id).catch(() => null);
+          if (role && botMember.roles.highest.comparePositionTo(role) > 0) await role.delete('Role removed from jail configuration by an administrator');
+        }
+      }
+      await updateGuildConfig(client, interaction.guildId, { jail });
+      pendingRoleRemovals.delete(key);
+      return interaction.update({ content: `Removed ${removable.length} role(s) from jail configuration${interaction.customId === 'jconfig:remove_delete' ? ' and deleted the Discord roles where permitted' : ''}.`, embeds: [], components: [] });
     }
     if (interaction.customId.startsWith('jconfig:') && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
