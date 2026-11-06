@@ -24,6 +24,9 @@ export const GUILD_CONFIG_DEFAULTS = {
         categoryId: null,
         evidenceForumId: null,
         logsChannelId: null,
+        actionLogChannelId: null,
+        jailAnnouncement: '{{user}} HAS BEEN JAILED',
+        unjailAnnouncement: '{{user}} HAS BEEN UNJAILED',
         lawyerRoleId: null,
     },
 };
