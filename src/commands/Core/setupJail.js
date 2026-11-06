@@ -30,6 +30,14 @@ export default {
         .filter(channel => channel.type === ChannelType.GuildText)
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(channel => ({ id: channel.id, name: channel.name, parentName: channel.parent?.name ?? null })),
+      actionLogChannelId: allChannels
+        .filter(channel => channel.type === ChannelType.GuildText)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(channel => ({ id: channel.id, name: channel.name, parentName: channel.parent?.name ?? null })),
+      evidenceForumId: allChannels
+        .filter(channel => channel.type === ChannelType.GuildForum)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(channel => ({ id: channel.id, name: channel.name, parentName: channel.parent?.name ?? null })),
     };
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
     setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', pages: {}, channelChoices, selections: { managePermissions: true }, existing: {
@@ -96,7 +104,7 @@ export default {
       await configureJail(interaction, await getGuildConfig(client, interaction.guildId), { ...session.existing, ...session.selections });
       return true;
     }
-    if (interaction.isStringSelectMenu() && (field === 'categoryId' || field === 'jailChannelId')) {
+    if (interaction.isStringSelectMenu() && ['categoryId', 'jailChannelId', 'evidenceForumId', 'actionLogChannelId'].includes(field)) {
       const choices = session.channelChoices?.[field] ?? [];
       const currentPage = Number.parseInt(pageValue, 10) || 0;
       const selected = interaction.values[0];
@@ -133,11 +141,6 @@ export default {
       } else if (field === 'jailChannelId' && interaction.isChannelSelectMenu()) {
         if (interaction.values[0]) session.selections.jailChannelId = interaction.values[0];
         else delete session.selections.jailChannelId;
-      } else if (field === 'evidenceForumId' && interaction.isChannelSelectMenu()) {
-        if (interaction.values[0]) session.selections.evidenceForumId = interaction.values[0];
-        else delete session.selections.evidenceForumId;
-      } else if (field === 'actionLogChannelId' && interaction.isChannelSelectMenu()) {
-        session.selections.actionLogChannelId = interaction.values[0] || null;
       }
       const skipWasEnabled = session.selections.managePermissions === false;
       if (skipWasEnabled && !hasCompleteExistingSelections(session)) session.selections.managePermissions = true;
@@ -423,8 +426,8 @@ function buildSetupPanel(token, page = 'roles') {
     return [
       new ActionRowBuilder().addComponents(setupPaginatedChannelMenu(token, session, 'categoryId', 'Select jail category')),
       new ActionRowBuilder().addComponents(setupPaginatedChannelMenu(token, session, 'jailChannelId', 'Select default jail channel')),
-      new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:evidenceForumId`).setPlaceholder('Select jail evidence forum').setChannelTypes(ChannelType.GuildForum).setMinValues(0).setMaxValues(1)),
-      new ActionRowBuilder().addComponents(new ChannelSelectMenuBuilder().setCustomId(`jsetup:${token}:actionLogChannelId`).setPlaceholder('Select announcement channel (optional)').setChannelTypes(ChannelType.GuildText).setMinValues(0).setMaxValues(1)),
+      new ActionRowBuilder().addComponents(setupPaginatedChannelMenu(token, session, 'evidenceForumId', 'Select jail evidence forum')),
+      new ActionRowBuilder().addComponents(setupPaginatedChannelMenu(token, session, 'actionLogChannelId', 'Select announcement channel (optional)')),
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`jsetup:${token}:back`).setLabel('Back').setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
