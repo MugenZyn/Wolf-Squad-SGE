@@ -469,6 +469,29 @@ export default {
       await interaction.showModal(modal);
       return true;
     }
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:channel_role_page:')) {
+      const currentPage = Number.parseInt(interaction.customId.split(':').at(-1), 10) || 0;
+      const selected = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const ids = [...new Set((current?.jail?.roles ?? []).map(item => item?.roleId).filter(Boolean))];
+      const guildRoles = (await Promise.all(ids.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
+      if (selected === '__previous_page__' || selected === '__next_page__') {
+        const nextPage = selected === '__previous_page__' ? currentPage - 1 : currentPage + 1;
+        const picker = buildPaginatedRoleMenu(`jconfig:channel_role_page:${nextPage}`, 'Choose a configured jail role', guildRoles, nextPage, [], { multiple: false, clearable: false });
+        return interaction.editReply({ content: `Choose the jail role whose channel you want to change. Page ${picker.page + 1} of ${picker.pageCount}.`, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+      }
+      const roleId = selected;
+      const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
+      if (!entry) return interaction.editReply({ content: 'That role is not currently registered as a jail role. Nothing was changed.', embeds: [], components: [] });
+      const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
+      if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
+      const channelMenu = jailChannelMenu(roleId, 0, channels);
+      return interaction.editReply({ content: `Choose a jail channel for <@&${roleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`, embeds: [], components: [
+        new ActionRowBuilder().addComponents(channelMenu),
+        new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
+      ] });
+    }
     if (interaction.customId === 'jconfig:channel_role' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const roleId = interaction.values[0];
@@ -491,8 +514,23 @@ export default {
     }
     if ((interaction.isChannelSelectMenu() || interaction.isStringSelectMenu()) && interaction.customId.startsWith('jconfig:channel:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
-      const roleId = interaction.customId.slice('jconfig:channel:'.length);
-      await saveJailRoleChannel(interaction, client, roleId, interaction.values[0]);
+      const [, , roleId, pageValue] = interaction.customId.split(':');
+      const selected = interaction.values[0];
+      if (interaction.isStringSelectMenu() && (selected === '__previous_page__' || selected === '__next_page__')) {
+        const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+        const current = await getGuildConfig(client, interaction.guildId);
+        const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
+        if (!entry) return interaction.editReply({ content: 'That jail role is no longer configured.', embeds: [], components: [] });
+        const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
+        const currentPage = Number.parseInt(pageValue, 10) || 0;
+        const nextPage = selected === '__previous_page__' ? currentPage - 1 : currentPage + 1;
+        const channelMenu = jailChannelMenu(roleId, nextPage, channels);
+        return interaction.editReply({ content: `Choose a jail channel for <@&${roleId}>. Page ${nextPage + 1} of ${Math.max(1, Math.ceil(channels.length / CONFIG_CHANNEL_ROLE_PAGE_SIZE))}.`, embeds: [], components: [
+          new ActionRowBuilder().addComponents(channelMenu),
+          new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jconfig:channel_default:${roleId}`).setLabel('Use default jail channel').setStyle(ButtonStyle.Secondary)),
+        ] });
+      }
+      await saveJailRoleChannel(interaction, client, roleId, selected);
       return true;
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:channel_default:')) {
