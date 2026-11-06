@@ -82,7 +82,7 @@ export default {
       failed.length ? `Could not remove: ${failed.join(', ')}. Check the bot's role hierarchy and permissions.` : '',
     ].filter(Boolean);
     return interaction.reply({
-      content: lines.join('\\n'),
+      content: lines.join('\n'),
       flags: MessageFlags.Ephemeral,
       allowedMentions: { parse: [] },
     });
