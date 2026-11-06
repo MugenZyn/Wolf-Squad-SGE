@@ -15,9 +15,10 @@ const SETTINGS = [
 
 const pendingRoleRemovals = new Map();
 const pendingRoleSelections = new Map();
+const pendingChannelRolePickers = new Map();
 
-const CONFIG_ROLE_PAGE_SIZE = 22;
-const CONFIG_CHANNEL_ROLE_PAGE_SIZE = 23;
+const CONFIG_ROLE_PAGE_SIZE = 25;
+const CONFIG_CHANNEL_ROLE_PAGE_SIZE = 25;
 
 function formatRoleMentions(ids, maxLength = 900) {
   const mentions = [];
@@ -33,60 +34,59 @@ function formatRoleMentions(ids, maxLength = 900) {
   return `${mentions.join(', ')}${remaining ? ` …and ${remaining} more` : ''}` || 'None';
 }
 
-function buildPaginatedRoleMenu(customId, placeholder, roles, page, selectedIds = [], options = {}) {
-  const multiple = options.multiple ?? true;
-  const clearable = options.clearable ?? true;
-  const pageSize = clearable ? CONFIG_ROLE_PAGE_SIZE : CONFIG_CHANNEL_ROLE_PAGE_SIZE;
-  const pageCount = Math.max(1, Math.ceil(roles.length / pageSize));
-  const safePage = Math.min(Math.max(0, Number(page) || 0), pageCount - 1);
-  const selected = new Set(selectedIds);
-  const menuOptions = roles
-    .slice(safePage * pageSize, (safePage + 1) * pageSize)
-    .map(role => ({
-      label: role.name.slice(0, 100),
-      value: role.id,
-      description: options.descriptionForRole?.(role) ?? 'Server role',
-      default: selected.has(role.id),
-    }));
+function getFilteredRoleChoices(state) {
+  const query = String(state?.searchQuery ?? '').trim().toLowerCase();
+  return (state?.roles ?? []).filter(role => !query || role.name.toLowerCase().includes(query));
+}
 
-  if (clearable) menuOptions.push({ label: 'Clear all selected', value: '__clear_all__', description: 'Clear selections from every page' });
-  menuOptions.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous roles', disabled: safePage === 0 });
-  menuOptions.push({ label: 'Next page →', value: '__next_page__', description: 'Show more roles', disabled: safePage >= pageCount - 1 });
-  if (!roles.length) menuOptions.unshift({ label: 'No selectable roles found', value: '__no_roles__', description: 'No roles are available', disabled: true });
-
+function buildPaginatedRoleMenu(customId, placeholder, state) {
+  const roles = getFilteredRoleChoices(state);
+  const pageCount = Math.max(1, Math.ceil(roles.length / CONFIG_ROLE_PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, Number(state?.page) || 0), pageCount - 1);
+  const selected = new Set(state?.selectedIds ?? []);
+  const options = roles.slice(safePage * CONFIG_ROLE_PAGE_SIZE, (safePage + 1) * CONFIG_ROLE_PAGE_SIZE).map(role => ({
+    label: role.name.slice(0, 100), value: role.id,
+    description: state?.descriptionForRole?.(role) ?? 'Server role',
+    default: selected.has(role.id),
+  }));
+  if (!options.length) options.push({ label: 'No matching roles found', value: '__no_roles__', description: 'Change or clear the search', disabled: true });
   return {
-    menu: new StringSelectMenuBuilder()
-      .setCustomId(customId)
+    menu: new StringSelectMenuBuilder().setCustomId(customId)
       .setPlaceholder(`${placeholder} (page ${safePage + 1}/${pageCount})`)
-      .setMinValues(clearable ? 0 : 1)
-      .setMaxValues(Math.min(multiple ? 25 : 1, Math.max(1, menuOptions.length)))
-      .addOptions(menuOptions),
-    page: safePage,
-    pageCount,
-    pageSize,
+      .setMinValues(0).setMaxValues(state?.mode === 'single' ? 1 : Math.min(25, Math.max(1, options.length)))
+      .addOptions(options),
+    page: safePage, pageCount, roles,
   };
 }
 
-function updatePagedRoleSelection(state, page, values, options = {}) {
-  const pageSize = options.pageSize ?? CONFIG_ROLE_PAGE_SIZE;
-  const currentPageIds = new Set(state.roles.slice(page * pageSize, (page + 1) * pageSize).map(role => role.id));
+function updatePagedRoleSelection(state, page, values) {
+  const roles = getFilteredRoleChoices(state);
+  const currentPageIds = new Set(roles.slice(page * CONFIG_ROLE_PAGE_SIZE, (page + 1) * CONFIG_ROLE_PAGE_SIZE).map(role => role.id));
   const selectedValues = values.filter(value => currentPageIds.has(value));
-  if (values.includes('__clear_all__')) {
-    state.selectedIds = [];
-  } else if (state.mode === 'single') {
+  if (state.mode === 'single') {
     if (selectedValues.length) state.selectedIds = [selectedValues[0]];
-    else if (!values.some(value => value.startsWith('__'))) state.selectedIds = [];
   } else {
     state.selectedIds = [...new Set([
-      ...state.selectedIds.filter(id => !currentPageIds.has(id)),
+      ...(state.selectedIds ?? []).filter(id => !currentPageIds.has(id)),
       ...selectedValues,
     ])];
   }
-  if (values.includes('__previous_page__')) state.page = Math.max(0, page - 1);
-  if (values.includes('__next_page__')) state.page = Math.min(Math.ceil(state.roles.length / pageSize) - 1, page + 1);
   return state;
 }
 
+function buildRolePagerControls(prefix, state, options = {}) {
+  const roles = getFilteredRoleChoices(state);
+  const pageCount = Math.max(1, Math.ceil(roles.length / (options.pageSize ?? CONFIG_ROLE_PAGE_SIZE)));
+  const page = Math.min(Math.max(0, state.page ?? 0), pageCount - 1);
+  const controls = [
+    new ButtonBuilder().setCustomId(`${prefix}:prev`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(page === 0),
+    new ButtonBuilder().setCustomId(`${prefix}:search`).setLabel('Search roles').setStyle(ButtonStyle.Primary),
+    ...(options.clearSelection ? [new ButtonBuilder().setCustomId(`${prefix}:clear`).setLabel('Clear selection').setStyle(ButtonStyle.Secondary)] : []),
+    new ButtonBuilder().setCustomId(`${prefix}:clear_search`).setLabel('Clear search').setStyle(ButtonStyle.Secondary).setDisabled(!state.searchQuery),
+    new ButtonBuilder().setCustomId(`${prefix}:next`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(page >= pageCount - 1),
+  ];
+  return new ActionRowBuilder().addComponents(controls);
+}
 function formatDuration(value) {
   return value == null ? 'Infinite' : `${Number(value).toLocaleString()} seconds`;
 }
