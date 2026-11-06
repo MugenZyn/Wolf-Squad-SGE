@@ -101,7 +101,7 @@ export default {
           `**Released by:** <@${interaction.user.id}>`,
           `**Jail role(s) removed:** ${namesForThread.length ? namesForThread.join(', ') : 'Configured jail role'}`,
           `**Released at:** <t:${Math.floor(releasedAt / 1000)}:F>`,
-        ].join('\\n'),
+        ].join('\n'),
         allowedMentions: { parse: [] },
       }).then(() => { evidenceLogCount++; }).catch(() => null);
     }
