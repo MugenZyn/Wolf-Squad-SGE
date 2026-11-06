@@ -91,7 +91,7 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { guild, user } = interaction;
     const existingJail = guildConfig?.jail ?? {};
-    const managePermissions = selections.managePermissions !== false;
+    const managePermissions = selections.managePermissions ?? true;
     if (hasExistingJailSetup(existingJail)) {
       return interaction.editReply('A jail system is already configured in this server. Use /config to manage the existing jail system instead of setting up another one.');
     }
