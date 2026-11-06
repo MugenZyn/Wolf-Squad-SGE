@@ -75,12 +75,14 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     const botMember = guild.members.me ?? await guild.members.fetchMe();
     if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply('I need Manage Roles permission to create or configure the jail roles.');
     if (!jailRole) {
+      await guild.roles.fetch();
       jailRole = guild.roles.cache.find(role => role.name === 'SGE - JAIL') || await guild.roles.create({ name: 'SGE - JAIL', reason });
       jailRoleId = jailRole.id;
     }
     if (jailRole.guild.id !== guild.id || jailRole.id === guild.id || jailRole.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply('The jail role must be a server role, cannot be @everyone, and cannot have Administrator permission.');
     let lawyerRole = lawyerRoleId ? await guild.roles.fetch(lawyerRoleId).catch(() => null) : null;
     if (!lawyerRole) {
+      await guild.roles.fetch();
       lawyerRole = guild.roles.cache.find(role => role.name === 'SGE - LAWYER') || await guild.roles.create({ name: 'SGE - LAWYER', reason });
       lawyerRoleId = lawyerRole.id;
     }
