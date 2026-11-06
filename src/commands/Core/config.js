@@ -227,10 +227,9 @@ export default {
     if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:channel_action') {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const action = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
       if (action === 'role_channel') {
-        if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
-        const { getGuildConfig } = await import('../../services/config/guildConfig.js');
-        const current = await getGuildConfig(client, interaction.guildId);
         const roles = (current?.jail?.roles ?? []).filter(item => item?.roleId);
         if (!roles.length) return interaction.editReply({ content: 'No jail roles are configured yet. Add jail roles on the Roles page first.', embeds: [], components: [] });
         const ids = [...new Set(roles.map(item => item.roleId))];
