@@ -29,6 +29,7 @@ function panelPayload(jail) {
       { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
       { name: 'Jail roles', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => `<@&${item.roleId}>`).join(', ') : 'None configured', inline: false },
       { name: 'Jail role → channel', value: Array.isArray(jail.roles) && jail.roles.length ? jail.roles.map(item => ` <@&${item.roleId}> → ${(item.channelId || jail.channelId) ? `<#${item.channelId || jail.channelId}>` : 'No channel linked'}`).join('\n').slice(0, 1024) : 'None configured', inline: false },
+      { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
       { name: 'Jail category', value: jail.categoryId ? `<#${jail.categoryId}>` : 'None configured', inline: true },
       { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
       { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
