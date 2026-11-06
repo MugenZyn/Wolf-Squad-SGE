@@ -3,6 +3,34 @@ import { getGuildConfig } from '../services/config/guildConfig.js';
 import { logger } from '../utils/logger.js';
 import { patchGuildChannelMessages, patchInteractionTextResponses } from '../utils/uppercaseMessages.js';
 
+function formatCommandOption(option, interaction) {
+  if (option.type === 1 || option.type === 2) {
+    return option.options?.map(child => formatCommandOption(child, interaction)).filter(Boolean).join(', ') || option.name;
+  }
+
+  const value = option.value;
+  if (option.type === 6 && value) {
+    const user = interaction.options.getUser(option.name);
+    const member = interaction.options.getMember(option.name);
+    const label = member?.displayName || user?.globalName || user?.username;
+    return `${option.name}=<@${user?.id ?? value}>${label ? ` (${label})` : ''}`;
+  }
+  if (option.type === 7 && value) return `${option.name}=<#${value}>`;
+  if (option.type === 8 && value) return `${option.name}=<@&${value}>`;
+  if (option.type === 9 && value) {
+    const user = interaction.options.getUser(option.name);
+    const member = interaction.options.getMember(option.name);
+    const role = interaction.guild?.roles.cache.get(value);
+    if (user) {
+      const label = member?.displayName || user.globalName || user.username;
+      return `${option.name}=<@${user.id}>${label ? ` (${label})` : ''}`;
+    }
+    if (role) return `${option.name}=<@&${role.id}> (${role.name})`;
+    return `${option.name}=${value}`;
+  }
+  return `${option.name}=${String(value ?? '').slice(0, 150)}`;
+}
+
 export default {
   name: Events.InteractionCreate,
   async execute(interaction, client) {
@@ -49,12 +77,7 @@ export default {
       if (interaction.guild && guildConfig?.jail?.logsChannelId) {
         const logChannel = await interaction.guild.channels.fetch(guildConfig.jail.logsChannelId).catch(() => null);
         if (logChannel?.isTextBased() && logChannel.guildId === interaction.guild.id) {
-          const options = interaction.options?.data?.map(option => {
-            const value = option.type === 1 || option.type === 2
-              ? option.options?.map(child => `${child.name}=${String(child.value ?? child.user?.id ?? child.role?.id ?? child.channel?.id ?? '').slice(0, 150)}`).join(', ')
-              : `${option.name}=${String(option.value ?? option.user?.id ?? option.role?.id ?? option.channel?.id ?? '').slice(0, 150)}`;
-            return value;
-          }).filter(Boolean).join(' | ') || 'No options';
+          const options = interaction.options?.data?.map(option => formatCommandOption(option, interaction)).filter(Boolean).join(' | ') || 'No options';
           await logChannel.send({
             embeds: [{
               color: 0x2B8A3E,
