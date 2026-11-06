@@ -163,12 +163,14 @@ export default {
     );
 
     let evidenceResult = 'Evidence post created.';
+    let evidenceThreadId = null;
     try {
       const evidenceThread = await forum.threads.create({
         name: `Jail — ${target.user.username}`.slice(0, 100),
         message: { embeds: [embed], components: [jumpButton], allowedMentions: { parse: [] } },
         reason: `Jail evidence for ${target.id}`,
       });
+      evidenceThreadId = evidenceThread.id;
 
       let forwardedCount = 0;
       const forwardErrors = [];
@@ -190,7 +192,7 @@ export default {
     }
 
     const activeCases = Array.isArray(jail.activeCases) ? jail.activeCases.filter(c => c.userId !== target.id) : [];
-    activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt, sentenceSeconds });
+    activeCases.push({ userId: target.id, roleId: selectedRole.id, releaseAt, sentenceSeconds, evidenceThreadId });
     const history = Array.isArray(jail.history) ? jail.history : [];
     history.push({
       userId: target.id,
@@ -202,7 +204,7 @@ export default {
       sentenceSeconds,
       releaseAt,
       roleId: selectedRole.id,
-      evidenceThreadId: null,
+      evidenceThreadId,
     });
     await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases, history } });
     if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: selectedRole.id, releaseAt });
