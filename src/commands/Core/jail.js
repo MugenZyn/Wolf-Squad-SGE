@@ -150,8 +150,19 @@ export default {
     if (evidence.length) {
       embed.addFields({
         name: `Forwarded messages (${evidence.length}/${evidenceLimit})`,
-        value: 'The original messages are forwarded individually below.',
+        value: 'Original messages are forwarded individually below. Text copies are included here as a backup in case forwarding fails.',
       });
+      for (const message of evidence) {
+        const attachmentLinks = [...message.attachments.values()].map(file => file.url);
+        const copiedContent = [
+          message.content?.trim(),
+          ...attachmentLinks.map((url, index) => `Attachment ${index + 1}: ${url}`),
+        ].filter(Boolean).join('\n');
+        embed.addFields({
+          name: `Copy · ${new Date(message.createdTimestamp).toISOString()} · ${clip(message.author.tag, 80)}`.slice(0, 256),
+          value: clip(copiedContent || '[No text content; see forwarded message or attachment links]', 1000),
+        });
+      }
     } else {
       embed.addFields({ name: 'Recent messages', value: 'No recent messages from this member were found in the channel where /jail was run.' });
     }
