@@ -13,7 +13,7 @@ export const GUILD_CONFIG_DEFAULTS = {
     disabledCommands: {},
     disabledCategories: {},
     jail: {
-        defaultDuration: 'infinite',
+        defaultSentenceSeconds: null,\n        minimumSentenceSeconds: 600,
         evidenceMessageCount: 1,
         defaultMessage: '',
         roles: [],
