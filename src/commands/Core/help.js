@@ -23,7 +23,14 @@ function categoryFor(name) {
   return 'Other Commands';
 }
 
-function buildHelp(client, category = null, commandName = null) {
+function currentBotName(interaction, client) {
+  return interaction.guild?.members?.me?.displayName
+    || client.user?.globalName
+    || client.user?.username
+    || 'bot';
+}
+
+function buildHelp(client, botName, category = null, commandName = null) {
   const commands = commandList(client);
   const groups = new Map();
   for (const command of commands) {
@@ -35,18 +42,19 @@ function buildHelp(client, category = null, commandName = null) {
   const selectedCategory = categories.includes(category) ? category : categories[0];
   const items = groups.get(selectedCategory) ?? [];
   const selectedCommand = items.find(item => item.name === commandName);
-  const embed = new EmbedBuilder().setColor(0x5865F2).setTitle('Wolf Squad • Help');
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle(`${botName} • Help`);
+
   if (selectedCommand) {
     embed.setDescription(`**/${selectedCommand.name}**\n${selectedCommand.description}`)
       .addFields({ name: 'Category', value: selectedCategory });
   } else {
-    embed.setDescription(`**${selectedCategory}**\nChoose a command below to see what it does.`)
-      .addFields({
-        name: 'Commands',
-        value: items.length
-          ? items.map(item => `**/${item.name}** — ${item.description}`).join('\n').slice(0, 3900)
-          : 'No commands in this category.',
-      });
+    const commandText = items.length
+      ? items.map(item => `**/${item.name}** — ${item.description}`).join('\n')
+      : 'No commands in this category.';
+    // Embed descriptions allow up to 4,096 characters; field values allow only 1,024.
+    embed.setDescription(`**${selectedCategory}**\nChoose a command below to see what it does.\n\n${commandText.slice(0, 3850)}`);
   }
   embed.setFooter({ text: `${commands.length} commands • Choose a category or command below` });
 
@@ -80,23 +88,22 @@ function buildHelp(client, category = null, commandName = null) {
 export default {
   data: new SlashCommandBuilder()
     .setName('help')
-    .setDescription('Browse every available Wolf Squad command.'),
+    .setDescription('Browse every available bot command.'),
 
   async execute(interaction, guildConfig, client) {
-    return interaction.reply({
-      ...buildHelp(client),
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    return interaction.editReply(buildHelp(client, currentBotName(interaction, client)));
   },
 
   async handleComponent(interaction, client) {
     if (!interaction.isStringSelectMenu() || !interaction.customId.startsWith('help:')) return false;
+    const botName = currentBotName(interaction, client);
     if (interaction.customId === 'help:category') {
-      return interaction.update(buildHelp(client, interaction.values[0]));
+      return interaction.update(buildHelp(client, botName, interaction.values[0]));
     }
     if (interaction.customId.startsWith('help:command:')) {
       const category = interaction.customId.slice('help:command:'.length);
-      return interaction.update(buildHelp(client, category, interaction.values[0]));
+      return interaction.update(buildHelp(client, botName, category, interaction.values[0]));
     }
     return false;
   },
