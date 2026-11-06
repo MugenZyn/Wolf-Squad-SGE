@@ -126,7 +126,7 @@ async function getJailChannelOptions(guild, jail = {}) {
   ].filter(Boolean));
   return channels.filter(channel =>
     channel.type === ChannelType.GuildText &&
-    (categoryId ? channel.parentId === categoryId : configuredIds.has(channel.id))
+    (configuredIds.has(channel.id) || (categoryId && channel.parentId === categoryId))
   ).sort((a, b) => a.name.localeCompare(b.name));
 }
 
