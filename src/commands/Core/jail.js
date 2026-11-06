@@ -402,20 +402,9 @@ export default {
       .setDescription(`**Reason:** ${clip(jailReason, 1800)}\n\n${addon ? `**Additional note:**\n${clip(addon, 1500)}` : 'No additional note was provided.'}`);
     if (evidence.length) {
       embed.addFields({
-        name: `Forwarded messages (${evidence.length}/${evidenceLimit})`,
-        value: 'Original messages are forwarded individually below.',
+        name: \`Forwarded messages (\${evidence.length}/\${evidenceLimit})\`,
+        value: 'The original messages are forwarded individually below, including their attachments.',
       });
-      for (const message of evidence) {
-        const attachmentLinks = [...message.attachments.values()].map(file => file.url);
-        const copiedContent = [
-          message.content?.trim(),
-          ...attachmentLinks.map((url, index) => `Attachment ${index + 1}: ${url}`),
-        ].filter(Boolean).join('\n');
-        embed.addFields({
-          name: `Copy · ${new Date(message.createdTimestamp).toISOString()} · ${clip(message.author.tag, 80)}`.slice(0, 256),
-          value: clip(copiedContent || '[No text content; see forwarded message or attachment links]', 1000),
-        });
-      }
     } else {
       embed.addFields({ name: 'Recent messages', value: 'No recent messages from this member were found in the channel where /jail was run.' });
     }
