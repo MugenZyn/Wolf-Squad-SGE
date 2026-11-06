@@ -14,6 +14,7 @@ const SETTINGS = [
 ];
 
 const pendingRoleRemovals = new Map();
+const pendingRoleSelections = new Map();
 
 function formatDuration(value) {
   return value == null ? 'Infinite' : `${Number(value).toLocaleString()} seconds`;
@@ -243,7 +244,7 @@ export default {
     }
     if (interaction.customId === 'jconfig:channel_role' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
-      const roleId = interaction.values[0];
+      const roleId = (selectedRoleIds ?? interaction.values)[0];
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const entry = (current?.jail?.roles ?? []).find(item => item?.roleId === roleId);
@@ -362,9 +363,44 @@ export default {
         components: [new ActionRowBuilder().addComponents(menu)],
       });
     }
-    if (interaction.customId === 'jconfig:add_jail_roles' && interaction.isRoleSelectMenu()) {
+    const roleSelectionActions = ['add_jail_roles', 'set_lawyer', 'set_policeman'];
+    const pendingSelectionKey = `${interaction.guildId}:${interaction.user.id}`;
+    if (interaction.isRoleSelectMenu() && roleSelectionActions.some(action => interaction.customId === `jconfig:${action === 'set_lawyer' ? 'lawyer_role' : action === 'set_policeman' ? 'policeman_roles' : action}`)) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const action = interaction.customId === 'jconfig:add_jail_roles' ? 'add_jail_roles' : interaction.customId === 'jconfig:lawyer_role' ? 'set_lawyer' : 'set_policeman';
+      const selectedIds = selectedRoleIds ?? [...new Set(interaction.values)].filter(id => id !== interaction.guildId);
+      pendingRoleSelections.set(`${pendingSelectionKey}:${action}`, selectedIds);
+      const selectedText = selectedIds.length ? selectedIds.map(id => `<@&${id}>`).join(', ') : 'None selected';
+      return interaction.update({
+        content: `Selected role(s): ${selectedText}\\nPress **Save** to apply this change.`,
+        embeds: [],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`jconfig:save_roles:${action}`).setLabel('Save').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`jconfig:cancel_roles:${action}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+          ),
+        ],
+      });
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:cancel_roles:')) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      const action = interaction.customId.slice('jconfig:cancel_roles:'.length);
+      pendingRoleSelections.delete(`${pendingSelectionKey}:${action}`);
+      return interaction.update({ content: 'Role changes cancelled. Nothing was saved.', embeds: [], components: [] });
+    }
+    let savingRoleAction = null;
+    let selectedRoleIds = null;
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:save_roles:')) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      savingRoleAction = interaction.customId.slice('jconfig:save_roles:'.length);
+      selectedRoleIds = pendingRoleSelections.get(`${pendingSelectionKey}:${savingRoleAction}`);
+      if (!selectedRoleIds) return interaction.update({ content: 'That role selection expired. Please select the roles again.', embeds: [], components: [] });
+      pendingRoleSelections.delete(`${pendingSelectionKey}:${savingRoleAction}`);
       await interaction.deferUpdate();
+    }
+    if ((interaction.customId === 'jconfig:add_jail_roles' && interaction.isRoleSelectMenu()) || savingRoleAction === 'add_jail_roles') {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      if (interaction.isRoleSelectMenu()) await interaction.deferUpdate();
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = { ...(current?.jail ?? {}) };
@@ -402,19 +438,19 @@ export default {
       await logConfigSave(interaction, jail, 'Jail roles added', `**Roles:** ${roles.map(role => `<@&${role.id}>`).join(', ')}`);
       return interaction.editReply({ content: `Registered ${roles.length} jail role(s): ${roles.map(role => `<@&${role.id}>`).join(', ')}. They use the default jail channel ${channelId ? `<#${channelId}>` : '(not configured)'} unless assigned a role-specific channel.`, embeds: [], components: [] });
     }
-    if (interaction.customId === 'jconfig:lawyer_role' && interaction.isRoleSelectMenu()) {
+    if ((interaction.customId === 'jconfig:lawyer_role' && interaction.isRoleSelectMenu()) || savingRoleAction === 'set_lawyer') {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const roleId = interaction.values[0];
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = { ...(current?.jail ?? {}) };
       const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
-      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.update({ content: 'I need Manage Roles permission to configure the lawyer role.', embeds: [], components: [] });
+      if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.editReply({ content: 'I need Manage Roles permission to configure the lawyer role.', embeds: [], components: [] });
       const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
       if (!role || role.id === interaction.guildId || role.managed || botMember.roles.highest.comparePositionTo(role) <= 0) {
-        return interaction.update({ content: 'Choose a valid, manageable server role below my highest role.', embeds: [], components: [] });
+        return interaction.editReply({ content: 'Choose a valid, manageable server role below my highest role.', embeds: [], components: [] });
       }
-      if (role.permissions.has(PermissionFlagsBits.Administrator)) return interaction.update({ content: 'The lawyer role cannot have Administrator permission.', embeds: [], components: [] });
+      if (role.permissions.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'The lawyer role cannot have Administrator permission.', embeds: [], components: [] });
       const previousId = jail.lawyerRoleId ?? null;
       if (previousId && previousId !== role.id) {
         for (const resourceId of [jail.categoryId, jail.channelId, jail.evidenceForumId].filter(Boolean)) {
@@ -429,17 +465,17 @@ export default {
       }
       await updateGuildConfig(client, interaction.guildId, { jail });
       await logConfigSave(interaction, jail, 'Lawyer role', `**Role:** <@&${role.id}>`);
-      return interaction.update({ content: `Saved lawyer role: <@&${role.id}>. It can view the configured jail category, jail channel, and evidence forum.`, embeds: [], components: [] });
+      return interaction.editReply({ content: `Saved lawyer role: <@&${role.id}>. It can view the configured jail category, jail channel, and evidence forum.`, embeds: [], components: [] });
     }
-    if (interaction.customId === 'jconfig:policeman_roles' && interaction.isRoleSelectMenu()) {
+    if ((interaction.customId === 'jconfig:policeman_roles' && interaction.isRoleSelectMenu()) || savingRoleAction === 'set_policeman') {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
-      const roleIds = interaction.values;
+      const roleIds = selectedRoleIds ?? interaction.values;
       const jail = { ...(current.jail ?? {}), policemanRoleIds: roleIds };
       await updateGuildConfig(client, interaction.guildId, { jail });
       await logConfigSave(interaction, jail, 'Policeman roles', `**Roles:** ${roleIds.length ? roleIds.map(id => `<@&${id}>`).join(', ') : 'None'}`);
-      return interaction.update({ content: `Saved ${roleIds.length} policeman role(s): ${roleIds.length ? roleIds.map(id => `<@&${id}>`).join(', ') : 'None'}.`, embeds: [], components: [] });
+      return interaction.editReply({ content: `Saved ${roleIds.length} policeman role(s): ${roleIds.length ? roleIds.map(id => `<@&${id}>`).join(', ') : 'None'}.`, embeds: [], components: [] });
     }
     if (interaction.customId === 'jconfig:remove_roles' && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
