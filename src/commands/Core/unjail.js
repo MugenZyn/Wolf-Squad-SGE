@@ -77,6 +77,38 @@ export default {
       jail: { ...currentJail, activeCases: remainingCases, history: updatedHistory },
     });
 
+    let evidenceLogCount = 0;
+    const evidenceThreadIds = [...new Set([
+      ...(currentJail.history ?? [])
+        .filter(entry => entry.userId === target.id && removed.includes(entry.roleId) && entry.evidenceThreadId)
+        .map(entry => entry.evidenceThreadId),
+      ...(currentJail.activeCases ?? [])
+        .filter(entry => entry.userId === target.id && removed.includes(entry.roleId) && entry.evidenceThreadId)
+        .map(entry => entry.evidenceThreadId),
+    ].filter(Boolean))];
+    for (const threadId of evidenceThreadIds) {
+      const thread = await interaction.guild.channels.fetch(threadId).catch(() => null);
+      if (!thread?.isTextBased() || typeof thread.send !== 'function') continue;
+      const rolesForThread = (currentJail.history ?? [])
+        .filter(entry => entry.userId === target.id && removed.includes(entry.roleId) && entry.evidenceThreadId === threadId)
+        .map(entry => entry.roleId);
+      const namesForThread = [];
+      for (const roleId of rolesForThread) {
+        const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+        if (role) namesForThread.push(role.name);
+      }
+      await thread.send({
+        content: [
+          '🔓 **Member unjailed**',
+          `**Member:** <@${target.id}> (${target.id})`,
+          `**Released by:** <@${interaction.user.id}>`,
+          `**Jail role(s) removed:** ${namesForThread.length ? namesForThread.join(', ') : 'Configured jail role'}`,
+          `**Released at:** <t:${Math.floor(releasedAt / 1000)}:F>`,
+        ].join('\n'),
+        allowedMentions: { parse: [] },
+      }).then(() => { evidenceLogCount++; }).catch(() => null);
+    }
+
     const removedRoleNames = [];
     for (const roleId of removed) {
       const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
@@ -108,6 +140,11 @@ export default {
       removed.length
         ? `Removed ${removed.length} jail role(s) from <@${target.id}>: ${removedNames.join(', ')}.`
         : `No jail roles could be removed from <@${target.id}>.`,
+      removed.length && evidenceLogCount
+        ? `Posted the unjail record in ${evidenceLogCount} jail evidence thread(s).`
+        : removed.length
+          ? 'Could not post to an evidence thread for this release. Older cases may not have a saved evidence-thread link.'
+          : '',
       failed.length ? `Could not remove: ${failed.join(', ')}. Check the bot's role hierarchy and permissions.` : '',
     ].filter(Boolean);
     return interaction.reply({
