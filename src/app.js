@@ -1,4 +1,41 @@
 import 'dotenv/config';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+// Pella may launch this file directly instead of using "npm start".
+// Pull the configured branch before starting, then relaunch so updated
+// source files are loaded by a fresh Node.js process.
+if (process.env.WOLF_SQUAD_GIT_SYNCED !== '1') {
+  const pull = spawn('git', ['pull', '--ff-only', 'origin', 'newmain'], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+  });
+
+  pull.on('error', error => {
+    console.error('[git-sync] Could not run git pull; starting current files:', error.message);
+    process.env.WOLF_SQUAD_GIT_SYNCED = '1';
+    import('./app.js');
+  });
+
+  pull.on('close', code => {
+    if (code !== 0) {
+      console.error(`[git-sync] git pull failed (exit ${code}); starting current files.`);
+      process.env.WOLF_SQUAD_GIT_SYNCED = '1';
+      return;
+    }
+
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+      cwd: process.cwd(),
+      env: { ...process.env, WOLF_SQUAD_GIT_SYNCED: '1' },
+      stdio: 'inherit',
+    });
+    child.on('error', error => {
+      console.error('[git-sync] Could not restart after pull:', error.message);
+      process.exit(1);
+    });
+    process.exit(0);
+  });
+}
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';
