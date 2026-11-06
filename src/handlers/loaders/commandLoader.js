@@ -140,6 +140,10 @@ function collectCommandPayloads(client) {
 
         registeredNames.add(commandName);
         const commandJson = command.data.toJSON();
+        if (commandName === 'help') {
+            const currentName = client.user?.username || 'bot';
+            commandJson.description = `Browse every available ${currentName} command.`.slice(0, 100);
+        }
         commands.push(commandJson);
         totalSubcommands += getSubcommandInfo(commandJson).length;
 
