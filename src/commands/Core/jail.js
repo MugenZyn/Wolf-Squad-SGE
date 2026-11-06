@@ -172,7 +172,7 @@ async function findExistingEvidenceThread(forum, userId, jail) {
 export default {
   data: new SlashCommandBuilder()
     .setName('jail')
-    .setDescription('Assign a registered jail role and forward evidence from this channel.')
+    .setDescription('Assign one or more registered jail roles and forward evidence from this channel.')
     .addUserOption(o => o.setName('user').setDescription('Member to jail.').setRequired(true))
     .addIntegerOption(o => o.setName('duration').setDescription('Sentence length in seconds. Leave blank to use the configured default (infinite by default).').setMinValue(1).setMaxValue(2147483647))
     .addStringOption(o => o.setName('message').setDescription('Optional extra text for the evidence post.').setMaxLength(1000))
