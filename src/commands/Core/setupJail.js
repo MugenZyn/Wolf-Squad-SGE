@@ -20,6 +20,10 @@ export default {
         components: [],
       });
     }
+    const allRoles = await interaction.guild.roles.fetch();
+    const roleChoices = [...allRoles.values()]
+      .filter(role => role.id !== interaction.guild.id && !role.managed)
+      .sort((a, b) => a.name.localeCompare(b.name));
     const allChannels = await interaction.guild.channels.fetch();
     const channelChoices = {
       categoryId: allChannels
@@ -40,7 +44,7 @@ export default {
         .map(channel => ({ id: channel.id, name: channel.name, parentName: channel.parent?.name ?? null })),
     };
     const token = `${interaction.guild.id}-${interaction.user.id}-${Date.now()}`;
-    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', pages: {}, channelChoices, selections: { managePermissions: true }, existing: {
+    setupSessions.set(token, { guildId: interaction.guild.id, userId: interaction.user.id, page: 'roles', pages: {}, roleChoices, channelChoices, selections: { managePermissions: true }, existing: {
       jailRoleIds: (existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean),
       lawyerRoleId: existingJail.lawyerRoleId ?? null,
       policemanRoleIds: existingJail.policemanRoleIds ?? [],
@@ -102,6 +106,48 @@ export default {
       await interaction.editReply({ content: 'CREATING...', embeds: [], components: [] });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       await configureJail(interaction, await getGuildConfig(client, interaction.guildId), { ...session.existing, ...session.selections });
+      return true;
+    }
+    if (interaction.isStringSelectMenu() && ['jailRoleIds', 'lawyerRoleId', 'policemanRoleIds'].includes(field)) {
+      const roles = session.roleChoices ?? [];
+      const currentPage = Number.parseInt(pageValue, 10) || 0;
+      const pageSize = SETUP_ROLE_PAGE_SIZE;
+      const visibleRoleIds = roles.slice(currentPage * pageSize, (currentPage + 1) * pageSize).map(role => role.id);
+      const values = interaction.values ?? [];
+      const skipWasEnabled = session.selections.managePermissions === false;
+
+      if (values.includes('__clear_all__')) {
+        if (field === 'lawyerRoleId') delete session.selections.lawyerRoleId;
+        else session.selections[field] = [];
+      } else if (field === 'lawyerRoleId') {
+        const selectedRoleId = values.find(value => visibleRoleIds.includes(value));
+        if (selectedRoleId) session.selections.lawyerRoleId = selectedRoleId;
+        else if (!values.some(value => value.startsWith('__'))) delete session.selections.lawyerRoleId;
+      } else {
+        const selectedOnPage = values.filter(value => visibleRoleIds.includes(value));
+        const previouslySelected = session.selections[field] ?? session.existing[field] ?? [];
+        session.selections[field] = [
+          ...new Set([
+            ...previouslySelected.filter(id => !visibleRoleIds.includes(id)),
+            ...selectedOnPage,
+          ]),
+        ];
+      }
+
+      if (values.includes('__previous_page__') || values.includes('__next_page__')) {
+        const pageCount = Math.max(1, Math.ceil(roles.length / pageSize));
+        const nextPage = currentPage + (values.includes('__previous_page__') ? -1 : 1);
+        session.pages[field] = Math.min(Math.max(0, nextPage), pageCount - 1);
+      }
+
+      if (skipWasEnabled && !hasCompleteExistingSelections(session)) session.selections.managePermissions = true;
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, session.page) });
+      if (skipWasEnabled && session.selections.managePermissions !== false) {
+        await interaction.followUp({
+          content: 'Permission edits were turned back on because one of the required existing selections was removed.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       return true;
     }
     if (interaction.isStringSelectMenu() && ['categoryId', 'jailChannelId', 'evidenceForumId', 'actionLogChannelId'].includes(field)) {
@@ -246,7 +292,6 @@ async function configureJail(interaction, guildConfig, selections = {}) {
 
     const existingRoleIds = new Set((existingJail.roles ?? []).map(item => item?.roleId).filter(Boolean));
     const combinedRoleIds = new Set([...existingRoleIds, ...uniqueJailRoles.map(role => role.id)]);
-    if (combinedRoleIds.size > 25) return interaction.editReply('Discord role selectors support up to 25 jail roles. Remove some before adding more.');
 
     const botRoleIds = new Set(botMember.roles.cache.keys());
     const categoryOverwrites = managePermissions && category
@@ -364,6 +409,20 @@ async function configureJail(interaction, guildConfig, selections = {}) {
 
 const setupSessions = new Map();
 
+function formatRoleMentions(ids, maxLength = 950) {
+  const mentions = [];
+  let used = 0;
+  for (const id of ids ?? []) {
+    const mention = `<@&${id}>`;
+    const addition = mentions.length ? `, ${mention}` : mention;
+    if (used + addition.length > maxLength) break;
+    mentions.push(mention);
+    used += addition.length;
+  }
+  const remaining = Math.max(0, (ids?.length ?? 0) - mentions.length);
+  return `${mentions.join(', ')}${remaining ? ` …and ${remaining} more` : ''}` || 'None';
+}
+
 function setupPanelEmbed(session) {
   const s = session.selections;
   const jailRoleIds = s.jailRoleIds?.length ? s.jailRoleIds : session.existing.jailRoleIds;
@@ -378,9 +437,9 @@ function setupPanelEmbed(session) {
         : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. The announcement channel is optional. Skip permission edits is available only after explicitly selecting an existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.')
       : 'Choose the roles used by the jail system. Jail and lawyer roles are created automatically if left empty.')
     .addFields(
-      { name: 'Jail roles', value: jailRoleIds.length ? jailRoleIds.map(id => `<@&${id}>`).join(', ') : 'Automatic (SGE - JAIL)', inline: false },
+      { name: 'Jail roles', value: jailRoleIds.length ? formatRoleMentions(jailRoleIds) : 'Automatic (SGE - JAIL)', inline: false },
       { name: 'Lawyer role', value: lawyerRoleId ? `<@&${lawyerRoleId}>` : 'Automatic (SGE - LAWYER)', inline: true },
-      { name: 'Policeman roles', value: policemanRoleIds.length ? policemanRoleIds.map(id => `<@&${id}>`).join(', ') : 'None', inline: true },
+      { name: 'Policeman roles', value: policemanRoleIds.length ? formatRoleMentions(policemanRoleIds) : 'None', inline: true },
       { name: 'Category', value: s.categoryId ? `<#${s.categoryId}>` : 'Create automatically (JAIL)', inline: true },
       { name: 'Default jail channel', value: s.jailChannelId ? `<#${s.jailChannelId}>` : 'Create automatically (jail)', inline: true },
       { name: 'Evidence forum', value: s.evidenceForumId ? `<#${s.evidenceForumId}>` : 'Create automatically (jail-evidence)', inline: true },
@@ -391,6 +450,37 @@ function setupPanelEmbed(session) {
 }
 
 const SETUP_CHANNEL_PAGE_SIZE = 22;
+const SETUP_ROLE_PAGE_SIZE = 22;
+
+function setupPaginatedRoleMenu(token, session, field, placeholder, multiple) {
+  const roles = session?.roleChoices ?? [];
+  const pageCount = Math.max(1, Math.ceil(roles.length / SETUP_ROLE_PAGE_SIZE));
+  const page = Math.min(Math.max(0, session?.pages?.[field] ?? 0), pageCount - 1);
+  const stored = field === 'lawyerRoleId'
+    ? [session?.selections?.lawyerRoleId ?? session?.existing?.lawyerRoleId].filter(Boolean)
+    : (session?.selections?.[field] ?? session?.existing?.[field] ?? []);
+  const selected = new Set(stored);
+  const options = roles
+    .slice(page * SETUP_ROLE_PAGE_SIZE, (page + 1) * SETUP_ROLE_PAGE_SIZE)
+    .map(role => ({
+      label: role.name.slice(0, 100),
+      value: role.id,
+      description: 'Server role',
+      default: selected.has(role.id),
+    }));
+
+  options.push({ label: 'Clear all selected', value: '__clear_all__', description: 'Clear this role selection' });
+  options.push({ label: '← Previous page', value: '__previous_page__', description: 'Show the previous roles', disabled: page === 0 });
+  options.push({ label: 'Next page →', value: '__next_page__', description: 'Show more roles', disabled: page >= pageCount - 1 });
+  if (!roles.length) options[0] = { label: 'No selectable roles found', value: '__no_roles__', description: 'No roles are available', disabled: true };
+
+  return new StringSelectMenuBuilder()
+    .setCustomId(`jsetup:${token}:${field}:${page}`)
+    .setPlaceholder(`${placeholder} (page ${page + 1}/${pageCount})`)
+    .setMinValues(0)
+    .setMaxValues(multiple ? 25 : 1)
+    .addOptions(options);
+}
 
 function setupPaginatedChannelMenu(token, session, field, placeholder) {
   const choices = session?.channelChoices?.[field] ?? [];
@@ -440,9 +530,9 @@ function buildSetupPanel(token, page = 'roles') {
     ];
   }
   return [
-    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:jailRoleIds`).setPlaceholder('Select jail roles').setMinValues(0).setMaxValues(25)),
-    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:lawyerRoleId`).setPlaceholder('Select lawyer role').setMinValues(0).setMaxValues(1)),
-    new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId(`jsetup:${token}:policemanRoleIds`).setPlaceholder('Select policeman roles (optional)').setMinValues(0).setMaxValues(25)),
+    new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, 'jailRoleIds', 'Select jail roles', true)),
+    new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, 'lawyerRoleId', 'Select lawyer role', false)),
+    new ActionRowBuilder().addComponents(setupPaginatedRoleMenu(token, session, 'policemanRoleIds', 'Select policeman roles (optional)', true)),
     new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`jsetup:${token}:next`).setLabel('Next: Channels').setStyle(ButtonStyle.Primary)),
   ];
 }
