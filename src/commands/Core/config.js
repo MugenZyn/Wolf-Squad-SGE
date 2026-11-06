@@ -58,9 +58,18 @@ export default {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
-      const jail = { ...(current.jail ?? {}), policemanRoleIds: interaction.values };
+      let roleIds = interaction.values;
+      if (!roleIds.length) {
+        const guild = interaction.guild;
+        const botMember = guild.members.me ?? await guild.members.fetchMe();
+        if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: 'I need Manage Roles permission to create the default policeman role.', flags: MessageFlags.Ephemeral });
+        const role = guild.roles.cache.find(item => item.name === 'SGE - POLICEMAN') || await guild.roles.create({ name: 'SGE - POLICEMAN', reason: 'Default policeman role selected from /config' });
+        if (botMember.roles.highest.comparePositionTo(role) <= 0) return interaction.reply({ content: 'Move my highest role above SGE - POLICEMAN, then select it again.', flags: MessageFlags.Ephemeral });
+        roleIds = [role.id];
+      }
+      const jail = { ...(current.jail ?? {}), policemanRoleIds: roleIds };
       await updateGuildConfig(client, interaction.guildId, { jail });
-      return interaction.reply({ content: interaction.values.length ? `Saved ${interaction.values.length} policeman role(s).` : 'Cleared policeman roles. Only administrators can use moderation commands until roles are configured.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: `Saved ${roleIds.length} policeman role(s): ${roleIds.map(id => `<@&${id}>`).join(', ')}.`, flags: MessageFlags.Ephemeral });
     }
     if (interaction.customId.startsWith('jconfig:') && interaction.isStringSelectMenu()) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
