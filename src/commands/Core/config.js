@@ -366,9 +366,8 @@ export default {
         if (!roles.length) return interaction.editReply({ content: 'No jail roles are configured yet. Add jail roles on the Roles page first.', embeds: [], components: [] });
         const ids = [...new Set(roles.map(item => item.roleId))];
         const guildRoles = (await Promise.all(ids.map(id => interaction.guild.roles.fetch(id).catch(() => null)))).filter(Boolean);
-        const menu = new StringSelectMenuBuilder().setCustomId('jconfig:channel_role').setPlaceholder('Choose a configured jail role').setMinValues(1).setMaxValues(1)
-          .addOptions(guildRoles.slice(0, 25).map(role => ({ label: role.name.slice(0, 100), value: role.id, description: 'Configured jail role' })));
-        return interaction.editReply({ content: 'Choose the jail role whose channel you want to change.', embeds: [], components: [new ActionRowBuilder().addComponents(menu)] });
+        const picker = buildPaginatedRoleMenu('jconfig:channel_role_page:0', 'Choose a configured jail role', guildRoles, 0, [], { multiple: false, clearable: false });
+        return interaction.editReply({ content: `Choose the jail role whose channel you want to change. Page 1 of ${picker.pageCount}.`, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
       }
       const settings = {
         default_jail: { key: 'channelId', label: 'Default jail channel', type: ChannelType.GuildText },
@@ -379,7 +378,7 @@ export default {
       };
       const setting = settings[action];
       if (!setting) return false;
-      if (['default_jail', 'category', 'evidence_forum', 'announcement'].includes(action)) {
+      if (['default_jail', 'category', 'evidence_forum', 'announcement', 'logs'].includes(action)) {
         const channels = await getSelectableChannels(interaction.guild, setting.type);
         if (!channels.length) {
           const emptyLabels = {
@@ -387,6 +386,7 @@ export default {
             category: 'categories',
             evidence_forum: 'forum channels',
             announcement: 'text channels',
+            logs: 'text channels',
           };
           return interaction.editReply({
             content: `No ${emptyLabels[action]} were found in this server.`,
@@ -408,6 +408,7 @@ export default {
         categoryId: { label: 'Jail category', type: ChannelType.GuildCategory },
         evidenceForumId: { label: 'Evidence forum', type: ChannelType.GuildForum },
         actionLogChannelId: { label: 'Announcement channel', type: ChannelType.GuildText },
+        logsChannelId: { label: 'Logs channel', type: ChannelType.GuildText },
       }[key] ?? null;
       if (!setting) return interaction.editReply({ content: 'Invalid channel setting.', embeds: [], components: [] });
 
@@ -478,7 +479,7 @@ export default {
       if (!entry) return interaction.editReply({ content: 'That role is not currently registered as a jail role. Run /setup-jail first.', embeds: [], components: [] });
       const channels = await getJailChannelOptions(interaction.guild, current?.jail ?? {});
       if (!channels.length) return interaction.editReply({ content: 'No jail channels found. Set the jail category first, or run /setup-jail to create the jail channels.', embeds: [], components: [] });
-      const channelMenu = jailChannelMenu(`jconfig:channel:${roleId}`, 'Choose a jail channel for this role', channels);
+      const channelMenu = jailChannelMenu(roleId, 0, channels);
       return interaction.editReply({
         content: `Choose a jail channel for <@&${roleId}>. You can also choose **Use default jail channel** to make it fall back to the server default.`,
         embeds: [],
