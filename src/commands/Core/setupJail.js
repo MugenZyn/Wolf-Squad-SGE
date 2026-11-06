@@ -105,17 +105,17 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     }
     // When the jail role is replaced, remove only the old jail-role overwrites.
     // Do not reset unrelated role/member permissions or recreate channels.
+    const allGuildChannels = await guild.channels.fetch();
     for (const oldRoleId of oldJailRoleIds) {
       if (oldRoleId === jailRole.id) continue;
       for (const channel of allGuildChannels.values()) {
-        if (channel.type === ChannelType.GuildCategory || channel.id === existingChannelId || channel.id === forumId) {
+        if (channel.type === ChannelType.GuildCategory || channel.id === existingJail.channelId || channel.id === existingJail.evidenceForumId) {
           await channel.permissionOverwrites.delete(oldRoleId, reason).catch(() => null);
         }
       }
     }
     // Hide every other category from members with the current jail role.
     // This is applied only when /setup-jail is explicitly run; later staff edits remain untouched.
-    const allGuildChannels = await guild.channels.fetch();
     const otherCategories = allGuildChannels.filter(channel =>
       channel.type === ChannelType.GuildCategory && channel.id !== category?.id
     );
@@ -151,12 +151,6 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       });
     }
 
-    if (category) {
-      for (const overwrite of category.permissionOverwrites.cache.values()) {
-        if ([guild.id, jailRole.id, lawyerRoleId, botMember.id].includes(overwrite.id) || botRoleIds.has(overwrite.id)) continue;
-        await jailChannel.permissionOverwrites.edit(overwrite.id, { ViewChannel: false }, reason);
-      }
-    }
     await jailChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, reason);
     await jailChannel.permissionOverwrites.edit(jailRole.id, { allow: JAIL_ALLOW, deny: [] }, reason);
     if (lawyerRole) await jailChannel.permissionOverwrites.edit(lawyerRole.id, { ViewChannel: true, ReadMessageHistory: true }, reason);
@@ -203,11 +197,9 @@ async function configureJail(interaction, guildConfig, selections = {}) {
       });
     }
 
-    // Replace all previous overwrites so only Discord administrators and the bot can view logs.
-    await logsChannel.permissionOverwrites.set([
-      { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: botMember.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
-    ], 'Restrict jail logs to administrators and the bot');
+    // Touch only the server default and bot access; preserve every other existing log overwrite.
+    await logsChannel.permissionOverwrites.edit(guild.id, { ViewChannel: false }, 'Restrict default jail log visibility');
+    await logsChannel.permissionOverwrites.edit(botMember.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }, 'Ensure bot can use jail logs');
 
     const roles = Array.isArray(existingJail.roles) ? existingJail.roles.filter(x => x?.roleId !== jailRole.id) : [];
     roles.push({ roleId: jailRole.id, channelId: jailChannel.id });
