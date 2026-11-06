@@ -105,7 +105,7 @@ export default {
       if (!['jailRoleIds', 'lawyerRoleId', 'policemanRoleIds'].includes(roleField)) return interaction.reply({ content: 'Invalid role search.', flags: MessageFlags.Ephemeral });
       session.roleSearch[roleField] = interaction.fields.getTextInputValue('role_query').trim();
       session.pages[roleField] = 0;
-      await interaction.reply({ content: 'Role search updated.', flags: MessageFlags.Ephemeral });
+      await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, 'roles') });
       return true;
     }
     if (interaction.isButton() && field === 'next') {
@@ -470,7 +470,7 @@ function setupPanelEmbed(session) {
 }
 
 const SETUP_CHANNEL_PAGE_SIZE = 22;
-const SETUP_ROLE_PAGE_SIZE = 22;
+const SETUP_ROLE_PAGE_SIZE = 25;
 
 function getSetupRoleChoices(session, field) {
   const query = String(session?.roleSearch?.[field] ?? '').trim().toLowerCase();
@@ -546,7 +546,7 @@ function buildSetupPanel(token, page = 'roles') {
   const label = field === 'lawyerRoleId' ? 'Select lawyer role' : field === 'policemanRoleIds' ? 'Select policeman roles (optional)' : 'Select jail roles';
   const choices = getSetupRoleChoices(session, field);
   const pageCount = Math.max(1, Math.ceil(choices.length / SETUP_ROLE_PAGE_SIZE));
-  const page = Math.min(Math.max(0, session?.pages?.[field] ?? 0), pageCount - 1);
+  const rolePageIndex = Math.min(Math.max(0, session?.pages?.[field] ?? 0), pageCount - 1);
   const query = session?.roleSearch?.[field] ?? '';
   return [
     new ActionRowBuilder().addComponents(
