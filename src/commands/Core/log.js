@@ -46,7 +46,7 @@ export default {
         `**Reason:** ${String(entry.reason || 'No reason recorded').slice(0, 700)}`,
         `**Moderator:** <@${entry.moderatorId || '0'}>`,
         `**Sentence:** ${formatSentence(entry.sentenceSeconds)}`,
-        `**Status:** ${entry.releasedAt ? `Released <t:${Math.floor(entry.releasedAt / 1000)}:R>` : entry.releaseAt ? `Scheduled release <t:${Math.floor(entry.releaseAt / 1000)}:F>` : 'Infinite / no automatic release'}`,
+        `**Jail role:** <@&${entry.roleId}>`,
       ].join('\n'),
     }));
 
