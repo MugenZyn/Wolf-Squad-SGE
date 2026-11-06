@@ -30,7 +30,7 @@ class TitanBot extends Client {
 
   async start() {
     try {
-      startupLog('Starting Wolf Squad jail bot...');
+      startupLog(`Starting ${this.user?.username || 'bot'} jail bot...`);
       startupLog('Initializing database...');
       const dbInstance = await initializeDatabase();
       this.db = dbInstance.db;
@@ -89,7 +89,7 @@ class TitanBot extends Client {
     });
 
     app.get('/', (req, res) => res.status(200).json({
-      message: 'Wolf Squad Jail Bot Online',
+      message: `${this.user?.username || 'Bot'} Jail Bot Online`,
       version: pkg.version,
       timestamp: new Date().toISOString(),
     }));
