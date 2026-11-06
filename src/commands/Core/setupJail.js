@@ -65,8 +65,14 @@ export default {
     }
     if (interaction.isButton() && field === 'save') {
       if (session.selections.managePermissions === false && !hasCompleteExistingSelections(session)) {
-        await interaction.reply({
-          content: 'You can only skip permission edits when you have explicitly selected an existing category, default jail channel, evidence forum, at least one jail role, and a lawyer role.',
+        session.selections.managePermissions = true;
+        await interaction.update({
+          content: '',
+          embeds: [setupPanelEmbed(session)],
+          components: buildSetupPanel(token, 'channels'),
+        });
+        await interaction.followUp({
+          content: 'Permission edits were turned back on because skipping requires an explicitly selected existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.',
           flags: MessageFlags.Ephemeral,
         });
         return true;
@@ -88,12 +94,23 @@ export default {
         else delete session.selections.lawyerRoleId;
       } else if (field === 'categoryId' && interaction.isChannelSelectMenu()) {
         if (interaction.values[0]) session.selections.categoryId = interaction.values[0];
+        else delete session.selections.categoryId;
       } else if (field === 'jailChannelId' && interaction.isChannelSelectMenu()) {
         if (interaction.values[0]) session.selections.jailChannelId = interaction.values[0];
+        else delete session.selections.jailChannelId;
       } else if (field === 'evidenceForumId' && interaction.isChannelSelectMenu()) {
         if (interaction.values[0]) session.selections.evidenceForumId = interaction.values[0];
+        else delete session.selections.evidenceForumId;
       }
+      const skipWasEnabled = session.selections.managePermissions === false;
+      if (skipWasEnabled && !hasCompleteExistingSelections(session)) session.selections.managePermissions = true;
       await interaction.update({ content: '', embeds: [setupPanelEmbed(session)], components: buildSetupPanel(token, session.page) });
+      if (skipWasEnabled && session.selections.managePermissions !== false) {
+        await interaction.followUp({
+          content: 'Permission edits were turned back on because one of the required existing selections was removed.',
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       return true;
     }
     return false;
@@ -106,6 +123,16 @@ async function configureJail(interaction, guildConfig, selections = {}) {
     const { guild, user } = interaction;
     const existingJail = guildConfig?.jail ?? {};
     const managePermissions = selections.managePermissions ?? true;
+    if (!managePermissions && !(
+      selections.categoryId &&
+      selections.jailChannelId &&
+      selections.evidenceForumId &&
+      Array.isArray(selections.jailRoleIds) &&
+      selections.jailRoleIds.length > 0 &&
+      selections.lawyerRoleId
+    )) {
+      return interaction.editReply('Permission edits cannot be skipped unless you explicitly select an existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.');
+    }
     if (hasExistingJailSetup(existingJail)) {
       return interaction.editReply('A jail system is already configured in this server. Use /config to manage the existing jail system instead of setting up another one.');
     }
@@ -300,7 +327,7 @@ function setupPanelEmbed(session) {
     .setDescription(session.page === 'channels'
       ? (session.selections.managePermissions === false
         ? 'Choose your existing jail channels. Permission edits are disabled: existing channel permissions and channel placement will be left unchanged. Make sure the bot already has access.'
-        : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. Use the permission button to preserve your existing channel permissions.')
+        : 'Choose the channels used by the jail system. Leave a selection empty to create it automatically. Skip permission edits is available only after explicitly selecting an existing category, default jail channel, evidence forum, at least one jail role, and lawyer role.')
       : 'Choose the roles used by the jail system. Jail and lawyer roles are created automatically if left empty.')
     .addFields(
       { name: 'Jail roles', value: jailRoleIds.length ? jailRoleIds.map(id => `<@&${id}>`).join(', ') : 'Automatic (SGE - JAIL)', inline: false },
