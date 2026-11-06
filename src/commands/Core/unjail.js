@@ -3,6 +3,10 @@ import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js
 import { getGuildConfig, updateGuildConfig } from '../../services/config/guildConfig.js';
 import { cancelJailRelease } from '../../services/jailReleaseService.js';
 
+function renderAnnouncement(template, values) {
+  return String(template ?? '').replace(/\\{\\{(user|server|moderator|roles)\\}\\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
+}
+
 export default {
   data: new SlashCommandBuilder()
     .setName('unjail')
@@ -105,6 +109,26 @@ export default {
         allowedMentions: { parse: [] },
       }).then(() => { evidenceLogCount++; }).catch(() => null);
     }
+    const removedRoleNames = [];
+    for (const roleId of removed) {
+      const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+      if (role) removedRoleNames.push(role.name);
+    }
+    const unjailAnnouncement = renderAnnouncement(currentJail.unjailAnnouncement || '{{user}} HAS BEEN UNJAILED', {
+      user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`, roles: removedRoleNames.join(', '),
+    });
+    const announcementChannelIds = new Set();
+    for (const roleId of removed) {
+      const roleConfig = (currentJail.roles ?? []).find(item => item?.roleId === roleId);
+      const channelId = roleConfig?.channelId || currentJail.channelId;
+      if (channelId) announcementChannelIds.add(channelId);
+    }
+    if (currentJail.actionLogChannelId) announcementChannelIds.add(currentJail.actionLogChannelId);
+    for (const channelId of announcementChannelIds) {
+      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+      if (channel?.isTextBased?.() && channel.send) await channel.send({ content: unjailAnnouncement, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
+    }
+
     if (!remainingCases.some(entry => entry.userId === target.id)) {
       cancelJailRelease(interaction.guild.id, target.id);
     }
