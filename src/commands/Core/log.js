@@ -1,4 +1,4 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
 
 function formatSentence(seconds) {
   if (seconds === null || seconds === undefined) return 'Infinite';
@@ -44,26 +44,57 @@ export default {
       return interaction.reply({ content: `No recorded jail history found for <@${user.id}>.`, flags: MessageFlags.Ephemeral });
     }
 
-    const fields = history.slice(0, 10).map((entry, index) => ({
-      name: `#${history.length - index} • ${new Date(entry.jailedAt || 0).toLocaleString()}`,
-      value: [
-        `**Reason:** ${String(entry.reason || 'No reason recorded').slice(0, 700)}`,
-        `**Moderator:** ${entry.moderatorId ? `<@${entry.moderatorId}>` : 'Unknown'}`,
-        `**Sentence:** ${formatSentence(entry.sentenceSeconds)}`,
-        `**Jail role:** <@&${entry.roleId}>`,
-      ].join('\n'),
-    }));
+    const pageSize = 10;
+    const pageCount = Math.max(1, Math.ceil(history.length / pageSize));
+    const token = interaction.id;
+    const buildPayload = page => {
+      const safePage = Math.min(Math.max(0, page), pageCount - 1);
+      const start = safePage * pageSize;
+      const entries = history.slice(start, start + pageSize);
+      const fields = entries.map((entry, index) => ({
+        name: `#${history.length - (start + index)} • ${new Date(entry.jailedAt || 0).toLocaleString()}`,
+        value: [
+          `**Reason:** ${String(entry.reason || 'No reason recorded').slice(0, 700)}`,
+          `**Moderator:** ${entry.moderatorId ? `<@${entry.moderatorId}>` : 'Unknown'}`,
+          `**Sentence:** ${formatSentence(entry.sentenceSeconds)}`,
+          `**Jail role:** <@&${entry.roleId}>`,
+        ].join('\n'),
+      }));
+      const components = pageCount > 1 ? [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`jlog:${token}:previous`).setLabel('Previous').setStyle(ButtonStyle.Secondary).setDisabled(safePage === 0),
+        new ButtonBuilder().setCustomId(`jlog:${token}:next`).setLabel('Next').setStyle(ButtonStyle.Primary).setDisabled(safePage >= pageCount - 1),
+      )] : [];
+      return {
+        embeds: [{
+          color: 0x8B0000,
+          title: `Jail history — ${user.tag}`,
+          description: `**Member:** <@${user.id}> (${user.id})\nShowing records ${start + 1}–${Math.min(start + entries.length, history.length)} of ${history.length}.`,
+          fields,
+          footer: { text: `Page ${safePage + 1} of ${pageCount} · ${history.length} total records` },
+        }],
+        components,
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+      };
+    };
 
-    return interaction.reply({
-      embeds: [{
-        color: 0x8B0000,
-        title: `Jail history — ${user.tag}`,
-        description: `**Member:** <@${user.id}> (${user.id})\nShowing ${Math.min(10, history.length)} of ${history.length} recorded jail entries.`,
-        fields,
-        footer: { text: 'Only the 10 most recent entries are shown.' },
-      }],
-      flags: MessageFlags.Ephemeral,
-      allowedMentions: { parse: [] },
-    });
+    let page = 0;
+    await interaction.reply(buildPayload(page));
+    if (pageCount > 1) {
+      const message = await interaction.fetchReply();
+      while (true) {
+        try {
+          const selection = await message.awaitMessageComponent({
+            time: 15 * 60 * 1000,
+            filter: component => component.user.id === interaction.user.id && component.customId.startsWith(`jlog:${token}:`),
+          });
+          page = selection.customId.endsWith(':previous') ? Math.max(0, page - 1) : Math.min(pageCount - 1, page + 1);
+          await selection.update(buildPayload(page));
+        } catch {
+          await interaction.editReply({ components: [] }).catch(() => null);
+          break;
+        }
+      }
+    }
   },
 };
