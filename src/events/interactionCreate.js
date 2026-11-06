@@ -10,6 +10,10 @@ export default {
         const setupCommand = client.commands.get('setup-jail');
         if (setupCommand?.handleComponent) return setupCommand.handleComponent(interaction, client);
       }
+      if (interaction.customId?.startsWith('help:')) {
+        const helpCommand = client.commands.get('help');
+        if (helpCommand?.handleComponent) return helpCommand.handleComponent(interaction, client);
+      }
       if (interaction.customId?.startsWith('jconfig:') || interaction.customId?.startsWith('jconfigmodal:')) {
         const configCommand = client.commands.get('config');
         if (configCommand?.handleComponent) return configCommand.handleComponent(interaction, client);
