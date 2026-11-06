@@ -1,4 +1,5 @@
 import { getGuildConfig, updateGuildConfig } from './config/guildConfig.js';
+import { markExpectedJailRoleRemoval, clearExpectedJailRoleRemoval } from './jailRoleUpdateGuard.js';
 
 const scheduled = new Map();
 
@@ -52,7 +53,13 @@ export function scheduleJailRelease(client, guildId, jailCase) {
       }
 
       if (member.roles.cache.has(jailCase.roleId)) {
-        await member.roles.remove(jailCase.roleId, 'Jail duration expired');
+        markExpectedJailRoleRemoval(guildId, member.id, jailCase.roleId);
+        try {
+          await member.roles.remove(jailCase.roleId, 'Jail duration expired');
+        } catch (error) {
+          clearExpectedJailRoleRemoval(guildId, member.id, jailCase.roleId);
+          throw error;
+        }
       }
 
       // Re-read after the Discord role operation so a concurrent departure can pause the case.
