@@ -184,7 +184,7 @@ export default {
     if (evidence.length) {
       embed.addFields({
         name: `Forwarded messages (${evidence.length}/${evidenceLimit})`,
-        value: 'Original messages are forwarded individually below. Text copies are included here as a backup in case forwarding fails.',
+        value: 'Original messages are forwarded individually below.',
       });
       for (const message of evidence) {
         const attachmentLinks = [...message.attachments.values()].map(file => file.url);
