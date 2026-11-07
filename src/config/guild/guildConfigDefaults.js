@@ -15,6 +15,11 @@ export const GUILD_CONFIG_DEFAULTS = {
     logs: {
         avatarChangesChannelId: null,
     },
+    twitch: {
+        streamers: [],
+        announcementChannelId: null,
+        liveMessages: ['{{streameruser}} IS NOW LIVE {{streamlink}}'],
+    },
     jail: {
         defaultSentenceSeconds: null,
         minimumSentenceSeconds: 600,
