@@ -1,38 +1,41 @@
 import 'dotenv/config';
 import { spawn, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 
 const root = process.cwd();
+
+function runGit(args, label) {
+  return new Promise(resolve => {
+    const child = spawn('git', args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', chunk => { stdout += chunk; });
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    child.on('error', error => {
+      console.error(`[git-sync] ${label} failed to start:`, error.message);
+      resolve({ code: null, stdout, stderr });
+    });
+    child.on('close', code => resolve({ code, stdout, stderr }));
+  });
+}
+
 console.log(`[runtime] Node.js ${process.version}`);
 console.log(`[runtime] Platform ${process.platform} ${process.arch}`);
-console.log('[git-sync] Checking GitHub for updates on origin/newmain...');
+console.log('[git-sync] Fetching latest origin/newmain...');
 
-const pullCode = await new Promise(resolve => {
-  const pull = spawn('git', ['pull', '--quiet', '--ff-only', 'origin', 'newmain'], {
-    cwd: root,
-    stdio: ['ignore', 'ignore', 'pipe'],
-  });
-
-  let pullError = '';
-  pull.stderr.setEncoding('utf8');
-  pull.stderr.on('data', chunk => {
-    pullError += chunk;
-  });
-
-  pull.on('error', error => {
-    console.error('[git-sync] Could not run git pull; starting the currently installed files:', error.message);
-    resolve(null);
-  });
-  pull.on('close', code => {
-    if (code !== 0 && pullError.trim()) {
-      console.error('[git-sync] Git pull error:', pullError.trim());
-    }
-    resolve(code);
-  });
-});
-
-if (pullCode !== 0) {
-  console.error(`[git-sync] Pull failed (exit ${pullCode}); starting the currently installed files.`);
+const fetch = await runGit(['fetch', '--quiet', 'origin', 'newmain'], 'Git fetch');
+if (fetch.code !== 0) {
+  console.error(`[git-sync] Fetch failed (exit ${fetch.code}): ${fetch.stderr.trim() || 'unknown error'}`);
+  console.error('[git-sync] Starting the currently installed files because the latest code could not be fetched.');
+} else {
+  const reset = await runGit(['reset', '--hard', 'origin/newmain'], 'Git reset');
+  if (reset.code !== 0) {
+    console.error(`[git-sync] Reset failed (exit ${reset.code}): ${reset.stderr.trim() || 'unknown error'}`);
+    console.error('[git-sync] Starting the currently installed files.');
+  } else {
+    console.log('[git-sync] Synchronized tracked files to origin/newmain.');
+  }
 }
 
 try {
