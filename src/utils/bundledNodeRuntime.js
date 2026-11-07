@@ -81,7 +81,8 @@ async function findOrInstallRuntime() {
     console.log('[runtime] Verified Node.js archive SHA-256.');
 
     await mkdir(extractDirectory, { recursive: true });
-    const extraction = spawnSync('tar', ['-xzf', archivePath, '-C', extractDirectory, '--strip-components=1'], {
+    const archiveTopLevel = archiveName.replace(/\.tar\.gz$/, '');
+    const extraction = spawnSync('tar', ['-xzf', archivePath, '-C', extractDirectory, '--strip-components=1', archiveTopLevel + '/bin/node'], {
       encoding: 'utf8',
       timeout: 180000,
       maxBuffer: 5 * 1024 * 1024,
