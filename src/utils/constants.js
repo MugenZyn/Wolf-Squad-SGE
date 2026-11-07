@@ -33,6 +33,11 @@ export const DEFAULT_GUILD_CONFIG = {
     logs: {
         avatarChangesChannelId: null,
     },
+    twitch: {
+        streamers: [],
+        announcementChannelId: null,
+        liveMessages: ['{{streameruser}} IS NOW LIVE {{streamlink}}'],
+    },
     logging: {
         enabled: false,
         channels: { audit: null, applications: null, reports: null },
