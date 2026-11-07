@@ -10,7 +10,10 @@ import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/loaders/commandLoader.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
+import { ensureBundledNodeRuntime } from './utils/bundledNodeRuntime.js';
 
+
+await ensureBundledNodeRuntime();
 
 const packageRequire = createRequire(import.meta.url);
 const JAIL_AUDIO_DEPENDENCIES = [
