@@ -347,6 +347,18 @@ export default {
       });
     }
     const durationLabel = formatSentence(sentenceSeconds);
+
+    // Play the configured voice sound before assigning roles or creating jail evidence.
+    let voiceSoundResult;
+    try {
+      const { playJailVoiceSound } = await import('../../services/jailVoiceSoundService.js');
+      voiceSoundResult = await playJailVoiceSound(interaction.client, target, jail, targetVoiceChannelId);
+    } catch (error) {
+      console.error('[jail-sound] Audio playback dependencies are unavailable:', error?.message ?? String(error));
+      voiceSoundResult = { status: 'failed', reason: 'audio_dependencies_unavailable' };
+    }
+
+    // Start the sentence only after the sound has finished or the member has left voice.
     const releaseAt = sentenceSeconds === null ? null : Date.now() + sentenceSeconds * 1000;
 
     const assignedRoles = [];
@@ -372,6 +384,22 @@ export default {
         });
       }
       return;
+    }
+
+    // The voice sound has completed before roles are applied. Now disconnect the
+    // member from the same voice channel; if they left or moved, leave them alone.
+    if (voiceSoundResult.status === 'played' && targetVoiceChannelId) {
+      const freshTarget = await interaction.guild.members.fetch(target.id).catch(() => target);
+      if (freshTarget.voice?.channelId === targetVoiceChannelId) {
+        try {
+          await freshTarget.voice.disconnect('Jailed after the configured voice sound finished playing.');
+        } catch (error) {
+          voiceSoundResult = { status: 'played_not_disconnected', reason: 'disconnect_failed' };
+          console.error('[jail-sound] Sound finished and jail roles were assigned, but voice disconnect failed:', error?.message ?? String(error));
+        }
+      } else {
+        voiceSoundResult = { status: 'member_left', reason: 'member_left' };
+      }
     }
 
     const evidenceLimit = Math.min(10, Math.max(1, Number(jail.evidenceMessageCount ?? 5)));
@@ -501,25 +529,19 @@ export default {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
     }
-    let voiceSoundResult;
-    try {
-      const { playJailVoiceSound } = await import('../../services/jailVoiceSoundService.js');
-      voiceSoundResult = await playJailVoiceSound(interaction.client, target, jail, targetVoiceChannelId);
-    } catch (error) {
-      console.error('[jail-sound] Audio playback dependencies are unavailable:', error?.message ?? String(error));
-      voiceSoundResult = { status: 'failed', reason: 'audio_dependencies_unavailable' };
-    }
     const voiceSoundNotice = [];
     if (voiceSoundResult.status === 'played') {
-      voiceSoundNotice.push('VOICE JAIL SOUND FINISHED; THE MEMBER WAS DISCONNECTED FROM VOICE.');
+      voiceSoundNotice.push('VOICE JAIL SOUND FINISHED; THE MEMBER WAS JAILED AND DISCONNECTED FROM VOICE.');
     } else if (voiceSoundResult.status === 'played_not_disconnected') {
-      voiceSoundNotice.push('VOICE JAIL SOUND FINISHED, BUT THE MEMBER COULD NOT BE DISCONNECTED. CHECK THE BOT\'S MOVE MEMBERS PERMISSION.');
+      voiceSoundNotice.push('VOICE JAIL SOUND FINISHED AND THE MEMBER WAS JAILED, BUT THEY COULD NOT BE DISCONNECTED. CHECK THE BOT\'S MOVE MEMBERS PERMISSION.');
+    } else if (voiceSoundResult.reason === 'member_left') {
+      voiceSoundNotice.push('THE MEMBER LEFT OR MOVED OUT OF VOICE DURING PLAYBACK; THE SOUND STOPPED AND THE BOT LEFT. THE MEMBER WAS THEN JAILED.');
     } else if (voiceSoundResult.reason === 'bot_busy') {
-      voiceSoundNotice.push('VOICE JAIL SOUND SKIPPED BECAUSE THE BOT IS ALREADY CONNECTED TO VOICE. THE MEMBER WAS NOT DISCONNECTED.');
+      voiceSoundNotice.push('VOICE JAIL SOUND SKIPPED BECAUSE THE BOT IS ALREADY CONNECTED TO VOICE. THE MEMBER WAS JAILED WITHOUT A VOICE DISCONNECT.');
     } else if (voiceSoundResult.reason === 'missing_permissions') {
       voiceSoundNotice.push('VOICE JAIL SOUND SKIPPED. THE BOT NEEDS VIEW CHANNEL, CONNECT, SPEAK, AND MOVE MEMBERS PERMISSIONS IN THAT VOICE CHANNEL.');
     } else if (voiceSoundResult.status === 'failed') {
-      voiceSoundNotice.push('VOICE JAIL SOUND COULD NOT BE PLAYED; THE MEMBER WAS NOT DISCONNECTED. CHECK THE BOT LOGS.');
+      voiceSoundNotice.push('VOICE JAIL SOUND COULD NOT BE PLAYED; THE MEMBER WAS JAILED WITHOUT A VOICE DISCONNECT. CHECK THE BOT LOGS.');
     }
 
     const assignmentWarnings = [
