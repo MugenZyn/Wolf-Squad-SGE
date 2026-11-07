@@ -100,8 +100,38 @@ function formatDuration(value) {
   return value == null ? 'Infinite' : `${Number(value).toLocaleString()} seconds`;
 }
 
-function panelPayload(jail, page = 'settings') {
-  const embed = new EmbedBuilder().setColor(0x5865F2).setTitle('Jail configuration');
+function panelPayload(config, category = 'jail', page = 'settings') {
+  const jail = config?.jail ?? {};
+  const logs = config?.logs ?? {};
+  const embed = new EmbedBuilder().setColor(0x5865F2);
+  const categoryNav = new ActionRowBuilder().addComponents(
+    ...[
+      ['jail', 'Jail'],
+      ['logs', 'Logs'],
+    ].map(([value, label]) => new ButtonBuilder()
+      .setCustomId(`jconfig:category:${value}`)
+      .setLabel(label)
+      .setStyle(category === value ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setDisabled(category === value))
+  );
+
+  if (category === 'logs') {
+    embed.setTitle('Logs configuration')
+      .setDescription('Choose where the bot should log member profile-picture changes. This includes account profile pictures and server-specific profile pictures.')
+      .addFields({
+        name: 'Profile picture changes',
+        value: logs.avatarChangesChannelId ? `<#${logs.avatarChangesChannelId}>` : 'Disabled — no channel selected',
+        inline: false,
+      });
+    const logMenu = new StringSelectMenuBuilder().setCustomId('jconfig:log_action').setPlaceholder('Configure profile picture logs')
+      .addOptions(
+        { label: 'Choose profile picture log channel', value: 'set_avatar_changes', description: 'Select a text channel for profile picture change logs' },
+        { label: 'Disable profile picture logs', value: 'disable_avatar_changes', description: 'Stop logging profile picture changes' },
+      );
+    return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(logMenu)], flags: MessageFlags.Ephemeral };
+  }
+
+  embed.setTitle('Jail configuration');
   const nav = new ActionRowBuilder().addComponents(
     ...[
       ['settings', 'Settings'],
@@ -123,10 +153,15 @@ function panelPayload(jail, page = 'settings') {
         { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 5), inline: true },
         { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
       );
-    controls = SETTINGS.filter(setting => ['default_seconds', 'minimum_seconds', 'evidence_count', 'default_message'].includes(setting.value))
-      .map(setting => new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
-        .setCustomId(`jconfig:${setting.value}`).setPlaceholder(`Change ${setting.label}`)
-        .addOptions([{ label: setting.label, value: setting.value, description: setting.description }])));
+    const editableSettings = SETTINGS.filter(setting => ['default_seconds', 'minimum_seconds', 'evidence_count', 'default_message'].includes(setting.value));
+    const settingsMenu = new StringSelectMenuBuilder().setCustomId('jconfig:setting_choice')
+      .setPlaceholder('Choose a jail setting to change')
+      .addOptions(editableSettings.map(setting => ({
+        label: setting.label,
+        value: setting.value,
+        description: setting.description,
+      })));
+    controls = [new ActionRowBuilder().addComponents(settingsMenu)];
   } else if (page === 'roles') {
     const jailRoleIds = (Array.isArray(jail.roles) ? jail.roles : []).map(item => item?.roleId).filter(Boolean);
     const policemanRoleIds = Array.isArray(jail.policemanRoleIds) ? jail.policemanRoleIds : [];
@@ -146,12 +181,12 @@ function panelPayload(jail, page = 'settings') {
     controls = [new ActionRowBuilder().addComponents(roleMenu)];
   } else if (page === 'channels') {
     const roleChannelCount = (Array.isArray(jail.roles) ? jail.roles : []).filter(item => item?.roleId && item?.channelId).length;
-    embed.setDescription('All channel and category settings are managed here, separately from role settings.')
+    embed.setDescription('All jail channel and category settings are managed here, separately from role settings.')
       .addFields(
         { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
         { name: 'Jail category', value: jail.categoryId ? `<#${jail.categoryId}>` : 'None configured', inline: true },
         { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
-        { name: 'Logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
+        { name: 'Jail configuration logs', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
         { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
         { name: 'Role-specific jail channels', value: roleChannelCount ? `${roleChannelCount} role-specific channel assignment(s). Use the paginated role selector to browse or search all jail roles.` : 'No role-specific jail channels configured', inline: false },
       );
@@ -160,7 +195,7 @@ function panelPayload(jail, page = 'settings') {
         { label: 'Default jail channel', value: 'default_jail', description: 'Choose the default channel for jailed members' },
         { label: 'Jail category', value: 'category', description: 'Choose the category for jail channels' },
         { label: 'Evidence forum', value: 'evidence_forum', description: 'Choose where jail evidence is stored' },
-        { label: 'Logs channel', value: 'logs', description: 'Choose where moderation logs are sent' },
+        { label: 'Jail configuration logs', value: 'logs', description: 'Choose where jail configuration saves are logged' },
         { label: 'Announcement channel', value: 'announcement', description: 'Choose where jail and unjail announcements are posted' },
         { label: 'Role-specific jail channel', value: 'role_channel', description: 'Assign a channel to a specific jail role' },
       );
@@ -180,7 +215,7 @@ function panelPayload(jail, page = 'settings') {
       );
     controls = [new ActionRowBuilder().addComponents(messageMenu)];
   }
-  return { content: '', embeds: [embed], components: [...controls, nav], flags: MessageFlags.Ephemeral };
+  return { content: '', embeds: [embed], components: [categoryNav, nav, ...controls], flags: MessageFlags.Ephemeral };
 }
 
 async function logConfigSave(interaction, jail, title, details) {
@@ -294,7 +329,8 @@ function buildPaginatedChannelPicker(key, page, channels) {
       channelId: 'a text channel',
       evidenceForumId: 'an evidence forum',
       actionLogChannelId: 'an announcement channel',
-      logsChannelId: 'a logs channel',
+      logsChannelId: 'a jail configuration log channel',
+      avatarChangesChannelId: 'a profile picture log channel',
     })[key] ?? 'a channel'} (page ${safePage + 1}/${pageCount})`)
     .setMinValues(1)
     .setMaxValues(1)
@@ -307,7 +343,8 @@ function buildPaginatedChannelPicker(key, page, channels) {
       channelId: 'default jail channel',
       evidenceForumId: 'jail evidence forum',
       actionLogChannelId: 'announcement channel',
-      logsChannelId: 'logs channel',
+      logsChannelId: 'jail configuration log channel',
+      avatarChangesChannelId: 'profile picture log channel',
     })[key] ?? 'channel'} — page ${safePage + 1} of ${pageCount} (${channels.length} available).`,
   };
 }
@@ -369,7 +406,7 @@ export default {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
     }
-    return interaction.reply(panelPayload(guildConfig?.jail ?? {}, 'settings'));
+    return interaction.reply(panelPayload(guildConfig ?? {}, 'jail', 'settings'));
   },
 
   async handleComponent(interaction, client) {
@@ -390,12 +427,34 @@ export default {
       // Acknowledge immediately, before database reads, Discord fetches, or permission updates.
       if (!opensModal && !interaction.deferred && !interaction.replied) if (!interaction.deferred && !interaction.replied) await interaction.deferUpdate();
     }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:category:')) {
+      const category = interaction.customId.slice('jconfig:category:'.length);
+      if (!['jail', 'logs'].includes(category)) return interaction.editReply({ content: 'Invalid configuration category.', embeds: [], components: [] });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      return interaction.editReply(panelPayload(current ?? {}, category, 'settings'));
+    }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:page:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
       const page = interaction.customId.slice('jconfig:page:'.length);
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
-      return interaction.editReply(panelPayload(current?.jail ?? {}, page));
+      return interaction.editReply(panelPayload(current ?? {}, 'jail', page));
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:log_action') {
+      const action = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      if (action === 'disable_avatar_changes') {
+        const logs = { ...(current?.logs ?? {}), avatarChangesChannelId: null };
+        await updateGuildConfig(client, interaction.guildId, { logs });
+        return interaction.editReply({ content: 'Profile picture change logging is disabled.', embeds: [], components: [] });
+      }
+      if (action !== 'set_avatar_changes') return interaction.editReply({ content: 'Invalid log setting.', embeds: [], components: [] });
+      const channels = await getSelectableChannels(interaction.guild, ChannelType.GuildText);
+      if (!channels.length) return interaction.editReply({ content: 'No text channels were found in this server.', embeds: [], components: [] });
+      const picker = buildPaginatedChannelPicker('avatarChangesChannelId', 0, channels);
+      return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
     }
     if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:channel_action') {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
@@ -455,7 +514,8 @@ export default {
         categoryId: { label: 'Jail category', type: ChannelType.GuildCategory },
         evidenceForumId: { label: 'Evidence forum', type: ChannelType.GuildForum },
         actionLogChannelId: { label: 'Announcement channel', type: ChannelType.GuildText },
-        logsChannelId: { label: 'Logs channel', type: ChannelType.GuildText },
+        logsChannelId: { label: 'Jail configuration logs channel', type: ChannelType.GuildText },
+        avatarChangesChannelId: { label: 'Profile picture log channel', type: ChannelType.GuildText },
       }[key] ?? null;
       if (!setting) return interaction.editReply({ content: 'Invalid channel setting.', embeds: [], components: [] });
 
@@ -474,6 +534,15 @@ export default {
       }
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
+      if (key === 'avatarChangesChannelId') {
+        const logs = { ...(current?.logs ?? {}), avatarChangesChannelId: selectedChannel.id };
+        await updateGuildConfig(client, interaction.guildId, { logs });
+        return interaction.editReply({
+          content: `Saved profile picture log channel: <#${selectedChannel.id}>.`,
+          embeds: [],
+          components: [],
+        });
+      }
       const jail = { ...(current?.jail ?? {}), [key]: selectedChannel.id };
       await updateGuildConfig(client, interaction.guildId, { jail });
       await logConfigSave(interaction, jail, setting.label, `**Selection:** <#${selectedChannel.id}>`);
