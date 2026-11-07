@@ -125,6 +125,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
   let connection = null;
   let player = null;
   let ffmpeg = null;
+  let playbackStage = 'checking bot voice permissions';
 
   try {
     const botMember = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
@@ -135,11 +136,13 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       return { status: 'skipped', reason: 'bot_busy' };
     }
 
+    playbackStage = 'retrieving the saved sound attachment';
     const soundUrl = await resolveStoredSoundUrl(guild, jail);
     if (!isDiscordAttachmentUrl(soundUrl)) {
       return { status: 'failed', reason: 'sound_file_unavailable' };
     }
 
+    playbackStage = 'checking the member voice channel';
     const voiceChannel = await guild.channels.fetch(voiceChannelId).catch(() => null);
     if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
       return { status: 'skipped', reason: 'unsupported_voice_channel' };
@@ -160,12 +163,18 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       return { status: 'failed', reason: 'ffmpeg_unavailable' };
     }
 
+    playbackStage = 'joining the member voice channel';
     connection = joinVoiceChannel({
       channelId: voiceChannel.id,
       guildId: guild.id,
       adapterCreator: guild.voiceAdapterCreator,
       selfDeaf: true,
       selfMute: false,
+    });
+    playbackStage = 'waiting for Discord voice connection readiness';
+    connection.on('error', voiceError => {
+      const message = String(voiceError?.message ?? voiceError).replace(/https?:\/\/\S+/g, '[URL REDACTED]').slice(0, 1200);
+      console.error('[jail-voice] Voice connection error: ' + message);
     });
     await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
 
@@ -174,6 +183,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     });
     connection.subscribe(player);
 
+    playbackStage = 'starting FFmpeg to decode the sound file';
     ffmpeg = spawn(ffmpegPath, [
       '-hide_banner',
       '-loglevel', 'error',
@@ -190,6 +200,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       'pipe:1',
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
+    playbackStage = 'streaming the decoded sound into Discord voice';
     const playbackFinished = waitForPlayback(player, ffmpeg);
     const resource = createAudioResource(ffmpeg.stdout, {
       inputType: StreamType.OggOpus,
@@ -197,6 +208,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     player.play(resource);
     await playbackFinished;
 
+    playbackStage = 'disconnecting the member after successful playback';
     const freshTarget = await guild.members.fetch(target.id).catch(() => target);
     if (freshTarget.voice.channelId) {
       try {
@@ -213,12 +225,18 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
 
     return { status: 'played', disconnected: true };
   } catch (error) {
-    logger.warn('Jail voice sound could not be played.', {
+    const rawError = error?.stack || error?.message || String(error);
+    const safeError = String(rawError)
+      .replace(/https?:\/\/\S+/g, '[URL REDACTED]')
+      .slice(0, 1800);
+    console.error('[jail-voice] Playback failed during "' + playbackStage + '": ' + safeError);
+    logger.warn('Jail voice sound could not be played during "' + playbackStage + '": ' + safeError, {
       guildId: guild.id,
       userId: target?.id,
       error: error?.message ?? String(error),
+      playbackStage,
     });
-    return { status: 'failed', reason: 'playback_failed' };
+    return { status: 'failed', reason: 'playback_failed', playbackStage };
   } finally {
     try { player?.stop(true); } catch {}
     try { if (ffmpeg && !ffmpeg.killed) ffmpeg.kill('SIGKILL'); } catch {}
