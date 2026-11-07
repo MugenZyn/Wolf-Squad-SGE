@@ -1,4 +1,6 @@
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
+import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { REST } from '@discordjs/rest';
 import express from 'express';
 
@@ -8,6 +10,69 @@ import { logger, startupLog, shutdownLog } from './utils/logger.js';
 import { loadCommands, registerCommands as registerSlashCommands } from './handlers/loaders/commandLoader.js';
 import pkg from '../package.json' with { type: 'json' };
 import { EXPECTED_SCHEMA_VERSION, EXPECTED_SCHEMA_LABEL } from './config/database/schemaVersion.js';
+
+
+const packageRequire = createRequire(import.meta.url);
+const JAIL_AUDIO_DEPENDENCIES = [
+  { name: '@discordjs/voice', spec: '@discordjs/voice@0.19.2' },
+  { name: 'ffmpeg-static', spec: 'ffmpeg-static@5.2.0' },
+];
+
+function ensureJailAudioDependencies() {
+  const missing = JAIL_AUDIO_DEPENDENCIES.filter(({ name }) => {
+    try {
+      packageRequire.resolve(name);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+
+  if (!missing.length) {
+    startupLog('Jail audio dependencies are installed');
+    return;
+  }
+
+  startupLog(`Installing missing jail audio dependencies: ${missing.map(item => item.name).join(', ')}`);
+  const result = spawnSync('npm', [
+    'install',
+    '--no-save',
+    '--package-lock=false',
+    '--no-audit',
+    '--no-fund',
+    ...missing.map(item => item.spec),
+  ], {
+    cwd: process.cwd(),
+    encoding: 'utf8',
+    timeout: 180000,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+
+  if (result.error || result.status !== 0) {
+    logger.warn('Could not install jail audio dependencies automatically.', {
+      error: result.error?.message,
+      exitCode: result.status,
+      output: String(result.stderr || result.stdout || '').slice(-4000),
+    });
+    return;
+  }
+
+  const stillMissing = JAIL_AUDIO_DEPENDENCIES.filter(({ name }) => {
+    try {
+      packageRequire.resolve(name);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  if (stillMissing.length) {
+    logger.warn('Jail audio dependencies remain unavailable after installation.', {
+      packages: stillMissing.map(item => item.name),
+    });
+  } else {
+    startupLog('Jail audio dependencies installed successfully');
+  }
+}
 
 class TitanBot extends Client {
   constructor() {
@@ -32,6 +97,8 @@ class TitanBot extends Client {
   async start() {
     try {
       startupLog('Starting bot...');
+      startupLog(`Runtime Node.js ${process.version}`);
+      ensureJailAudioDependencies();
       startupLog('Initializing database...');
       const dbInstance = await initializeDatabase();
       this.db = dbInstance.db;
