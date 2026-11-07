@@ -48,6 +48,21 @@ export default {
       return interaction.reply({ content: 'That member is not in this server.', flags: MessageFlags.Ephemeral });
     }
 
+    // If a jail sound is currently playing for this member, unjail cancels
+    // that pending jail before roles or evidence have been created.
+    try {
+      const { cancelActiveJailVoiceSound } = await import('../../services/jailVoiceSoundService.js');
+      if (cancelActiveJailVoiceSound(interaction.guild.id, target.id)) {
+        return interaction.reply({
+          content: `Cancelled the pending jail for <@${target.id}>. The sound stopped and the bot left voice. No jail or unjail evidence or announcements were posted.`,
+          flags: MessageFlags.Ephemeral,
+          allowedMentions: { parse: [] },
+        });
+      }
+    } catch (error) {
+      console.error('[unjail] Could not check for pending jail voice playback:', error?.message ?? String(error));
+    }
+
     const jail = guildConfig?.jail ?? {};
     const configuredRoleIds = (Array.isArray(jail.roles) ? jail.roles : [])
       .map(entry => entry?.roleId)
