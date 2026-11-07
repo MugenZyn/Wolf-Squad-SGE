@@ -358,6 +358,13 @@ export default {
       voiceSoundResult = { status: 'failed', reason: 'audio_dependencies_unavailable' };
     }
 
+    if (voiceSoundResult.reason === 'member_unjailed' || voiceSoundResult.status === 'cancelled') {
+      return interaction.editReply({
+        content: 'This pending jail was cancelled because the member was unjailed while the voice sound was playing. No jail roles, jail announcements, or jail evidence were created.',
+        components: [],
+      });
+    }
+
     // Start the sentence only after the sound has finished or the member has left voice.
     const releaseAt = sentenceSeconds === null ? null : Date.now() + sentenceSeconds * 1000;
 
