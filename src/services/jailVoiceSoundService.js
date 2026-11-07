@@ -132,6 +132,12 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
   let connection = null;
   let player = null;
   let ffmpeg = null;
+  let voiceStateListener = null;
+  let memberLeftVoice = false;
+  let resolveMemberLeftVoice;
+  const memberLeftVoicePromise = new Promise(resolve => {
+    resolveMemberLeftVoice = resolve;
+  });
   let playbackStage = 'checking bot voice permissions';
 
   try {
@@ -187,6 +193,29 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       throw new Error('The saved sound attachment exceeds the 15 MB limit.');
     }
 
+    // Watch the member's original voice channel. Leaving or moving stops
+    // playback and destroys the bot's voice connection immediately.
+    voiceStateListener = (oldState, newState) => {
+      const oldUserId = oldState.id ?? oldState.member?.id;
+      if (oldUserId !== target.id || oldState.channelId !== voiceChannel.id || newState.channelId === voiceChannel.id) {
+        return;
+      }
+
+      memberLeftVoice = true;
+      resolveMemberLeftVoice();
+      try { player?.stop(true); } catch {}
+      try { if (ffmpeg && !ffmpeg.killed) ffmpeg.kill('SIGTERM'); } catch {}
+      try { connection?.destroy(); } catch {}
+    };
+    client.on('voiceStateUpdate', voiceStateListener);
+
+    const latestTarget = await guild.members.fetch(target.id).catch(() => target);
+    if (!latestTarget.voice?.channelId || latestTarget.voice.channelId !== voiceChannel.id) {
+      memberLeftVoice = true;
+      resolveMemberLeftVoice();
+      return { status: 'member_left', reason: 'member_left' };
+    }
+
     playbackStage = 'joining the member voice channel';
     connection = joinVoiceChannel({
       channelId: voiceChannel.id,
@@ -200,7 +229,18 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       const message = String(voiceError?.message ?? voiceError).replace(/https?:\/\/\S+/g, '[URL REDACTED]').slice(0, 1200);
       console.error('[jail-voice] Voice connection error: ' + message);
     });
-    await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+    const connectionOutcome = await Promise.race([
+      entersState(connection, VoiceConnectionStatus.Ready, 15_000)
+        .then(() => 'ready')
+        .catch(error => {
+          if (memberLeftVoice) return 'member_left';
+          throw error;
+        }),
+      memberLeftVoicePromise.then(() => 'member_left'),
+    ]);
+    if (connectionOutcome === 'member_left' || memberLeftVoice) {
+      return { status: 'member_left', reason: 'member_left' };
+    }
 
     player = createAudioPlayer({
       behaviors: { noSubscriber: NoSubscriberBehavior.Stop },
@@ -231,14 +271,30 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     });
     player.play(resource);
     ffmpeg.stdin.end(audioBuffer);
-    await playbackFinished;
 
-    playbackStage = 'disconnecting the member after successful playback';
+    const playbackOutcome = await Promise.race([
+      playbackFinished.then(
+        () => ({ status: 'finished' }),
+        error => ({ status: 'error', error })
+      ),
+      memberLeftVoicePromise.then(() => ({ status: 'member_left' })),
+    ]);
+    if (playbackOutcome.status === 'member_left' || memberLeftVoice) {
+      return { status: 'member_left', reason: 'member_left' };
+    }
+    if (playbackOutcome.status === 'error') {
+      throw playbackOutcome.error;
+    }
+
     const freshTarget = await guild.members.fetch(target.id).catch(() => target);
-    if (freshTarget.voice.channelId) {
-      try {
-        await freshTarget.voice.disconnect('Jailed; the configured jail sound finished playing.');
-      } catch (error) {
+    if (memberLeftVoice || freshTarget.voice?.channelId !== voiceChannel.id) {
+      return { status: 'member_left', reason: 'member_left' };
+    }
+
+    // The command applies jail roles and posts evidence after playback.
+    // It disconnects the member after the jail roles have been assigned.
+    return { status: 'played' };
+  } catch (error) {
         logger.warn('Jail sound played, but the jailed member could not be disconnected from voice.', {
           guildId: guild.id,
           userId: target.id,
@@ -250,6 +306,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
 
     return { status: 'played', disconnected: true };
   } catch (error) {
+    if (memberLeftVoice) return { status: 'member_left', reason: 'member_left' };
     const rawError = error?.stack || error?.message || String(error);
     const safeError = String(rawError)
       .replace(/https?:\/\/\S+/g, '[URL REDACTED]')
@@ -263,6 +320,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     });
     return { status: 'failed', reason: 'playback_failed', playbackStage };
   } finally {
+    if (voiceStateListener) client.off('voiceStateUpdate', voiceStateListener);
     try { player?.stop(true); } catch {}
     try { if (ffmpeg && !ffmpeg.killed) ffmpeg.kill('SIGKILL'); } catch {}
     try { connection?.destroy(); } catch {}
