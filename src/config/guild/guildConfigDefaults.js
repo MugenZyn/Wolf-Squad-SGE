@@ -12,6 +12,9 @@ export const GUILD_CONFIG_DEFAULTS = {
     dmOnClose: true,
     disabledCommands: {},
     disabledCategories: {},
+    logs: {
+        avatarChangesChannelId: null,
+    },
     jail: {
         defaultSentenceSeconds: null,
         minimumSentenceSeconds: 600,
