@@ -396,7 +396,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('config')
-    .setDescription('View and change jail configuration.')
+    .setDescription('View and change server configuration.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction, guildConfig) {
@@ -404,7 +404,7 @@ export default {
       return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
     }
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: 'Only administrators can change server configuration.', flags: MessageFlags.Ephemeral });
     }
     return interaction.reply(panelPayload(guildConfig ?? {}, 'jail', 'settings'));
   },
@@ -478,7 +478,7 @@ export default {
         default_jail: { key: 'channelId', label: 'Default jail channel', type: ChannelType.GuildText },
         category: { key: 'categoryId', label: 'Jail category', type: ChannelType.GuildCategory },
         evidence_forum: { key: 'evidenceForumId', label: 'Evidence forum', type: ChannelType.GuildForum },
-        logs: { key: 'logsChannelId', label: 'Logs channel', type: ChannelType.GuildText },
+        logs: { key: 'logsChannelId', label: 'Jail configuration logs channel', type: ChannelType.GuildText },
         announcement: { key: 'actionLogChannelId', label: 'Announcement channel', type: ChannelType.GuildText },
       };
       const setting = settings[action];
