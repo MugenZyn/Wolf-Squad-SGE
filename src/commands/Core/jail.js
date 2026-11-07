@@ -201,6 +201,7 @@ export default {
     const targetUser = interaction.options.getUser('user', true);
     let target = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
     if (!target) return interaction.reply({ content: 'That member is not in this server.', flags: MessageFlags.Ephemeral });
+    const targetVoiceChannelId = target.voice?.channelId ?? null;
     if (target.id === interaction.user.id || target.id === interaction.client.user.id || target.id === interaction.guild.ownerId) {
       return interaction.reply({ content: 'You cannot jail yourself, the bot, or the server owner.', flags: MessageFlags.Ephemeral });
     }
@@ -501,7 +502,7 @@ export default {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
     }
-    const voiceSoundResult = await playJailVoiceSound(interaction.client, target, jail);
+    const voiceSoundResult = await playJailVoiceSound(interaction.client, target, jail, targetVoiceChannelId);
     const voiceSoundNotice = [];
     if (voiceSoundResult.status === 'played') {
       voiceSoundNotice.push('VOICE JAIL SOUND FINISHED; THE MEMBER WAS DISCONNECTED FROM VOICE.');
