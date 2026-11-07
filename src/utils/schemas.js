@@ -57,6 +57,13 @@ const VerificationConfigSchema = z
   })
   .optional();
 
+const ProfilePictureLogsSchema = z
+  .object({
+    avatarChangesChannelId: z.string().nullable().optional(),
+  })
+  .passthrough()
+  .optional();
+
 export const GuildConfigSchema = z
   .object({
     prefix: z.string().optional(),
@@ -74,6 +81,7 @@ export const GuildConfigSchema = z
     disabledCommands: z.record(z.boolean()).optional(),
     disabledCategories: z.record(z.boolean()).optional(),
     logging: LoggingConfigSchema.optional(),
+    logs: ProfilePictureLogsSchema,
     ticketLogging: TicketLoggingSchema.optional(),
     enableLogging: z.boolean().optional(),
     verification: VerificationConfigSchema
