@@ -139,8 +139,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       return { status: 'failed', reason: 'sound_file_unavailable' };
     }
 
-    const voiceChannel = target.voice.channel
-      ?? await guild.channels.fetch(voiceChannelId).catch(() => null);
+    const voiceChannel = await guild.channels.fetch(voiceChannelId).catch(() => null);
     if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
       return { status: 'skipped', reason: 'unsupported_voice_channel' };
     }
