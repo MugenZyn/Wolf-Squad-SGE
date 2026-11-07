@@ -64,6 +64,15 @@ const ProfilePictureLogsSchema = z
   .passthrough()
   .optional();
 
+const TwitchConfigSchema = z
+  .object({
+    streamers: z.array(z.any()).default([]),
+    announcementChannelId: z.string().nullable().optional(),
+    liveMessages: z.array(z.string().max(1000)).max(10).optional(),
+  })
+  .passthrough()
+  .optional();
+
 export const GuildConfigSchema = z
   .object({
     prefix: z.string().optional(),
@@ -82,6 +91,7 @@ export const GuildConfigSchema = z
     disabledCategories: z.record(z.boolean()).optional(),
     logging: LoggingConfigSchema.optional(),
     logs: ProfilePictureLogsSchema,
+    twitch: TwitchConfigSchema,
     ticketLogging: TicketLoggingSchema.optional(),
     enableLogging: z.boolean().optional(),
     verification: VerificationConfigSchema
