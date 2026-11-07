@@ -201,7 +201,6 @@ export default {
     const targetUser = interaction.options.getUser('user', true);
     let target = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
     if (!target) return interaction.reply({ content: 'That member is not in this server.', flags: MessageFlags.Ephemeral });
-    const targetVoiceChannelId = target.voice?.channelId ?? null;
     if (target.id === interaction.user.id || target.id === interaction.client.user.id || target.id === interaction.guild.ownerId) {
       return interaction.reply({ content: 'You cannot jail yourself, the bot, or the server owner.', flags: MessageFlags.Ephemeral });
     }
@@ -303,6 +302,7 @@ export default {
     // Refresh the member in case another moderator assigned roles while the menu was open.
     target = await interaction.guild.members.fetch(target.id).catch(() => null);
     if (!target) return interaction.editReply({ content: 'That member is no longer in this server.', components: [] });
+    const targetVoiceChannelId = target.voice?.channelId ?? null;
     const alreadyHeldRoles = selectedRoles.filter(role => target.roles.cache.has(role.id));
     const rolesToAssign = selectedRoles.filter(role => !target.roles.cache.has(role.id));
     if (!rolesToAssign.length) {
