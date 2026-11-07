@@ -176,12 +176,17 @@ function panelPayload(config, category = 'jail', page = 'settings') {
   );
   let controls = [];
   if (page === 'settings') {
-    embed.setDescription('Configure jail durations and evidence defaults.')
+    const voiceSoundConfigured = Boolean(jail.voiceSoundUrl);
+    const voiceSoundStatus = !voiceSoundConfigured
+      ? 'No sound uploaded'
+      : (jail.voiceSoundEnabled ? 'Enabled' : 'Uploaded, disabled');
+    embed.setDescription('Configure jail durations, evidence defaults, and the optional voice jail sound. Upload or replace the sound with /config jail_sound_file:<audio file>.')
       .addFields(
         { name: 'Default sentence', value: formatDuration(jail.defaultSentenceSeconds), inline: true },
         { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
         { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 5), inline: true },
         { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
+        { name: 'Voice jail sound', value: `${voiceSoundStatus}\nFile: ${jail.voiceSoundFileName || 'None'}\nWhen played, the jailed member is disconnected after the sound finishes. The bot skips playback if it is already connected to voice.`, inline: false },
       );
     const editableSettings = SETTINGS.filter(setting => ['default_seconds', 'minimum_seconds', 'evidence_count', 'default_message'].includes(setting.value));
     const settingsMenu = new StringSelectMenuBuilder().setCustomId('jconfig:setting_choice')
@@ -191,7 +196,14 @@ function panelPayload(config, category = 'jail', page = 'settings') {
         value: setting.value,
         description: setting.description,
       })));
-    controls = [new ActionRowBuilder().addComponents(settingsMenu)];
+    const soundActions = new StringSelectMenuBuilder()
+      .setCustomId('jconfig:jail_sound_action')
+      .setPlaceholder('Configure the voice jail sound')
+      .addOptions(
+        ...(voiceSoundConfigured ? [{ label: jail.voiceSoundEnabled ? 'Disable voice jail sound' : 'Enable voice jail sound', value: 'toggle', description: 'Turn the uploaded sound on or off' }] : [{ label: 'Upload a sound', value: 'upload_help', description: 'Use /config jail_sound_file and attach an MP3, WAV, OGG, or similar file' }]),
+        ...(voiceSoundConfigured ? [{ label: 'Remove uploaded sound', value: 'clear', description: 'Delete the saved sound file and disable playback' }] : []),
+      );
+    controls = [new ActionRowBuilder().addComponents(settingsMenu), new ActionRowBuilder().addComponents(soundActions)];
   } else if (page === 'roles') {
     const jailRoleIds = (Array.isArray(jail.roles) ? jail.roles : []).map(item => item?.roleId).filter(Boolean);
     const policemanRoleIds = Array.isArray(jail.policemanRoleIds) ? jail.policemanRoleIds : [];
@@ -429,16 +441,105 @@ export default {
   data: new SlashCommandBuilder()
     .setName('config')
     .setDescription('View and change jail configuration.')
+    .addAttachmentOption(option => option
+      .setName('jail_sound_file')
+      .setDescription('Upload or replace the sound played when someone is jailed in voice chat.')
+      .setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) {
-      return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: 'USE THIS COMMAND IN A SERVER.', flags: MessageFlags.Ephemeral });
     }
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-      return interaction.reply({ content: 'Only administrators can change server configuration.', flags: MessageFlags.Ephemeral });
+      return interaction.reply({ content: 'ONLY ADMINISTRATORS CAN CHANGE SERVER CONFIGURATION.', flags: MessageFlags.Ephemeral });
     }
-    return interaction.reply(panelPayload(guildConfig ?? {}, 'jail', 'settings'));
+
+    const soundAttachment = interaction.options.getAttachment('jail_sound_file');
+    if (!soundAttachment) return interaction.reply(panelPayload(guildConfig ?? {}, 'jail', 'settings'));
+
+    const allowedExtensions = new Set(['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac', 'webm']);
+    const fileName = String(soundAttachment.name || 'jail-sound.mp3');
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    const maxBytes = 15 * 1024 * 1024;
+    if (!allowedExtensions.has(extension)) {
+      return interaction.reply({ content: 'UPLOAD AN AUDIO FILE SUCH AS MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, OR WEBM.', flags: MessageFlags.Ephemeral });
+    }
+    if (Number(soundAttachment.size) > maxBytes) {
+      return interaction.reply({ content: 'THE JAIL SOUND FILE MUST BE 15 MB OR SMALLER.', flags: MessageFlags.Ephemeral });
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    let storedMessage = null;
+    try {
+      const sourceUrl = new URL(soundAttachment.url);
+      if (sourceUrl.protocol !== 'https:' || !['cdn.discordapp.com', 'media.discordapp.net'].includes(sourceUrl.hostname)) {
+        return interaction.editReply({ content: 'DISCORD DID NOT PROVIDE A VALID AUDIO UPLOAD URL.' });
+      }
+      const response = await fetch(soundAttachment.url, { signal: AbortSignal.timeout(20000) });
+      if (!response.ok) throw new Error(`Discord attachment download returned HTTP ${response.status}.`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (!buffer.length || buffer.length > maxBytes) {
+        return interaction.editReply({ content: 'THE JAIL SOUND FILE MUST BE NON-EMPTY AND 15 MB OR SMALLER.' });
+      }
+
+      const jail = { ...(guildConfig?.jail ?? {}) };
+      const preferredChannel = jail.logsChannelId
+        ? await interaction.guild.channels.fetch(jail.logsChannelId).catch(() => null)
+        : null;
+      const storageChannels = [preferredChannel, interaction.channel].filter((channel, index, list) =>
+        channel && list.findIndex(item => item?.id === channel.id) === index
+      );
+      const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 90) || 'jail-sound.mp3';
+      for (const channel of storageChannels) {
+        if (!channel.isTextBased?.() || typeof channel.send !== 'function') continue;
+        try {
+          storedMessage = await channel.send({
+            content: 'JAIL VOICE SOUND FILE STORED.',
+            files: [{ attachment: buffer, name: safeFileName }],
+            allowedMentions: { parse: [] },
+          });
+          if (storedMessage.attachments.first()?.url) break;
+          storedMessage = null;
+        } catch {
+          storedMessage = null;
+        }
+      }
+      const savedAttachment = storedMessage?.attachments.first();
+      if (!storedMessage || !savedAttachment?.url) {
+        return interaction.editReply({ content: 'I COULD NOT STORE THE AUDIO FILE. GIVE THE BOT VIEW CHANNEL, SEND MESSAGES, AND ATTACH FILES IN THE JAIL CONFIG LOGS CHANNEL OR RUN /CONFIG IN A CHANNEL WHERE IT CAN SEND FILES.' });
+      }
+
+      const oldChannelId = jail.voiceSoundChannelId;
+      const oldMessageId = jail.voiceSoundMessageId;
+      const updatedJail = {
+        ...jail,
+        voiceSoundEnabled: true,
+        voiceSoundUrl: savedAttachment.url,
+        voiceSoundFileName: safeFileName,
+        voiceSoundChannelId: storedMessage.channelId,
+        voiceSoundMessageId: storedMessage.id,
+      };
+      try {
+        await updateGuildConfig(interaction.client, interaction.guildId, { jail: updatedJail });
+      } catch (error) {
+        await storedMessage.delete().catch(() => null);
+        throw error;
+      }
+
+      if (oldChannelId && oldMessageId) {
+        const oldChannel = await interaction.guild.channels.fetch(oldChannelId).catch(() => null);
+        const oldMessage = oldChannel?.messages?.fetch
+          ? await oldChannel.messages.fetch(oldMessageId).catch(() => null)
+          : null;
+        if (oldMessage) await oldMessage.delete().catch(() => null);
+      }
+      await logConfigSave(interaction, updatedJail, 'Jail voice sound uploaded', `**File:** ${safeFileName}\n**Status:** Enabled`);
+      return interaction.editReply({ content: `JAIL VOICE SOUND SAVED: ${safeFileName.toUpperCase()}. IT WILL PLAY WHEN A JAILED MEMBER IS IN A VOICE CHANNEL, THEN DISCONNECT THEM AFTER PLAYBACK FINISHES.` });
+    } catch (error) {
+      if (storedMessage) await storedMessage.delete().catch(() => null);
+      return interaction.editReply({ content: `COULD NOT SAVE THE JAIL SOUND FILE: ${String(error?.message ?? error).slice(0, 500).toUpperCase()}` });
+    }
   },
 
   async handleComponent(interaction, client) {
@@ -488,6 +589,43 @@ export default {
       if (!channels.length) return interaction.editReply({ content: 'No text channels were found in this server.', embeds: [], components: [] });
       const picker = buildPaginatedChannelPicker('avatarChangesChannelId', 0, channels);
       return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:jail_sound_action') {
+      const action = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current?.jail ?? {}) };
+      if (action === 'upload_help') {
+        return interaction.editReply({ content: 'RUN /CONFIG AND ATTACH YOUR AUDIO FILE IN THE JAIL SOUND FILE OPTION. SUPPORTED FORMATS INCLUDE MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, AND WEBM.', embeds: [], components: [] });
+      }
+      if (action === 'toggle') {
+        if (!jail.voiceSoundUrl) return interaction.editReply({ content: 'UPLOAD A JAIL SOUND FILE FIRST USING /CONFIG JAIL_SOUND_FILE.', embeds: [], components: [] });
+        jail.voiceSoundEnabled = !jail.voiceSoundEnabled;
+        await updateGuildConfig(client, interaction.guildId, { jail });
+        await logConfigSave(interaction, jail, jail.voiceSoundEnabled ? 'Jail voice sound enabled' : 'Jail voice sound disabled', `**File:** ${jail.voiceSoundFileName || 'Configured sound'}`);
+        const updated = { ...(current ?? {}), jail };
+        return interaction.editReply(panelPayload(updated, 'jail', 'settings'));
+      }
+      if (action === 'clear') {
+        const oldChannelId = jail.voiceSoundChannelId;
+        const oldMessageId = jail.voiceSoundMessageId;
+        jail.voiceSoundEnabled = false;
+        jail.voiceSoundUrl = null;
+        jail.voiceSoundFileName = null;
+        jail.voiceSoundChannelId = null;
+        jail.voiceSoundMessageId = null;
+        await updateGuildConfig(client, interaction.guildId, { jail });
+        if (oldChannelId && oldMessageId) {
+          const oldChannel = await interaction.guild.channels.fetch(oldChannelId).catch(() => null);
+          const oldMessage = oldChannel?.messages?.fetch
+            ? await oldChannel.messages.fetch(oldMessageId).catch(() => null)
+            : null;
+          if (oldMessage) await oldMessage.delete().catch(() => null);
+        }
+        await logConfigSave(interaction, jail, 'Jail voice sound removed', '**File:** Removed');
+        return interaction.editReply(panelPayload({ ...(current ?? {}), jail }, 'jail', 'settings'));
+      }
+      return interaction.editReply({ content: 'INVALID JAIL SOUND SETTING.', embeds: [], components: [] });
     }
     if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:twitch_action') {
       const action = interaction.values[0];
