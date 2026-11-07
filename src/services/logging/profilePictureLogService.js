@@ -24,7 +24,7 @@ export async function logProfilePictureChange(client, guild, member, {
       iconURL: newAvatarUrl,
     })
     .setDescription(
-      `**Member:** <@${member.id}>\n**User ID:** ${member.id}\n**Type:** ${isServerAvatar ? 'Server-specific profile picture' : 'Account profile picture'}`
+      `**Member:** <@${member.id}> — ${member.user?.tag || member.user?.username || member.displayName || 'Unknown member'}\n**User ID:** ${member.id}\n**Type:** ${isServerAvatar ? 'Server-specific profile picture' : 'Account profile picture'}`
     )
     .setThumbnail(oldAvatarUrl)
     .setImage(newAvatarUrl)
