@@ -5,7 +5,6 @@ import {
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 import { scheduleJailRelease } from '../../services/jailReleaseService.js';
-import { playJailVoiceSound } from '../../services/jailVoiceSoundService.js';
 
 function formatSentence(seconds) {
   if (seconds === null || seconds === undefined) return 'Infinite';
@@ -502,7 +501,14 @@ export default {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
     }
-    const voiceSoundResult = await playJailVoiceSound(interaction.client, target, jail, targetVoiceChannelId);
+    let voiceSoundResult;
+    try {
+      const { playJailVoiceSound } = await import('../../services/jailVoiceSoundService.js');
+      voiceSoundResult = await playJailVoiceSound(interaction.client, target, jail, targetVoiceChannelId);
+    } catch (error) {
+      console.error('[jail-sound] Audio playback dependencies are unavailable:', error?.message ?? String(error));
+      voiceSoundResult = { status: 'failed', reason: 'audio_dependencies_unavailable' };
+    }
     const voiceSoundNotice = [];
     if (voiceSoundResult.status === 'played') {
       voiceSoundNotice.push('VOICE JAIL SOUND FINISHED; THE MEMBER WAS DISCONNECTED FROM VOICE.');
