@@ -56,6 +56,10 @@ function buildHelp(client, botName, category = null, commandName = null) {
     // Embed descriptions allow up to 4,096 characters; field values allow only 1,024.
     embed.setDescription(`**${selectedCategory}**\nChoose a command below to see what it does.\n\n${commandText.slice(0, 3850)}`);
   }
+  embed.addFields({
+    name: 'Privacy Policy',
+    value: '[Read the Conradd4 Privacy Policy](https://conradd4.carrd.co/)',
+  });
   embed.setFooter({ text: `${commands.length} commands • Choose a category or command below` });
 
   const rows = [];
