@@ -5,6 +5,7 @@ import {
 import { memberHasModerationCommandAccess } from '../../utils/permissionGuard.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
 import { scheduleJailRelease } from '../../services/jailReleaseService.js';
+import { playJailVoiceSound } from '../../services/jailVoiceSoundService.js';
 
 function formatSentence(seconds) {
   if (seconds === null || seconds === undefined) return 'Infinite';
@@ -500,11 +501,25 @@ export default {
       const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
       if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
     }
+    const voiceSoundResult = await playJailVoiceSound(interaction.client, target, jail);
+    const voiceSoundNotice = [];
+    if (voiceSoundResult.status === 'played') {
+      voiceSoundNotice.push('VOICE JAIL SOUND FINISHED; THE MEMBER WAS DISCONNECTED FROM VOICE.');
+    } else if (voiceSoundResult.status === 'played_not_disconnected') {
+      voiceSoundNotice.push('VOICE JAIL SOUND FINISHED, BUT THE MEMBER COULD NOT BE DISCONNECTED. CHECK THE BOT\'S MOVE MEMBERS PERMISSION.');
+    } else if (voiceSoundResult.reason === 'bot_busy') {
+      voiceSoundNotice.push('VOICE JAIL SOUND SKIPPED BECAUSE THE BOT IS ALREADY CONNECTED TO VOICE. THE MEMBER WAS NOT DISCONNECTED.');
+    } else if (voiceSoundResult.reason === 'missing_permissions') {
+      voiceSoundNotice.push('VOICE JAIL SOUND SKIPPED. THE BOT NEEDS VIEW CHANNEL, CONNECT, SPEAK, AND MOVE MEMBERS PERMISSIONS IN THAT VOICE CHANNEL.');
+    } else if (voiceSoundResult.status === 'failed') {
+      voiceSoundNotice.push('VOICE JAIL SOUND COULD NOT BE PLAYED; THE MEMBER WAS NOT DISCONNECTED. CHECK THE BOT LOGS.');
+    }
+
     const assignmentWarnings = [
       alreadyHeldRoles.length ? alreadyHeldRoles.length + ' role(s) were already held and skipped.' : '',
       failedRoleAssignments.length ? failedRoleAssignments.length + ' role(s) could not be assigned.' : '',
     ].filter(Boolean);
-    await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings].join('\n'), flags: MessageFlags.Ephemeral });
+    await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings, ...voiceSoundNotice].join('\n'), flags: MessageFlags.Ephemeral });
 
     const skippedRoleChunks = chunkTextItems(alreadyHeldRoles.map(role => role.name));
     for (let index = 0; index < skippedRoleChunks.length; index++) {
