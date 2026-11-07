@@ -3,6 +3,7 @@ import {
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
+import { lookupTwitchUser, TWITCH_MAX_STREAMERS_PER_GUILD } from '../../services/twitch/twitchStreamService.js';
 
 const SETTINGS = [
   { label: 'Default sentence', value: 'default_seconds', description: 'Seconds, or INFINITE' },
@@ -108,6 +109,7 @@ function panelPayload(config, category = 'jail', page = 'settings') {
     ...[
       ['jail', 'Jail'],
       ['logs', 'Logs'],
+      ['twitch', 'Twitch'],
     ].map(([value, label]) => new ButtonBuilder()
       .setCustomId(`jconfig:category:${value}`)
       .setLabel(label)
@@ -129,6 +131,34 @@ function panelPayload(config, category = 'jail', page = 'settings') {
         { label: 'Disable member change logs', value: 'disable_avatar_changes', description: 'Stop logging profile picture, username, display name, and nickname changes' },
       );
     return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(logMenu)], flags: MessageFlags.Ephemeral };
+  }
+
+  if (category === 'twitch') {
+    const twitch = config?.twitch ?? {};
+    const streamers = Array.isArray(twitch.streamers) ? twitch.streamers : [];
+    const messages = Array.isArray(twitch.liveMessages) && twitch.liveMessages.length
+      ? twitch.liveMessages
+      : ['{{streameruser}} IS NOW LIVE {{streamlink}}'];
+    const streamerSummary = streamers.length
+      ? streamers.slice(0, 12).map(item => `• **${String(item.displayName || item.login || 'Twitch user').slice(0, 80)}** (${item.login ? `@${item.login}` : 'account'})${item.isLive ? ' — LIVE' : ''}`).join('\\n') + (streamers.length > 12 ? `\\n…and ${streamers.length - 12} more` : '')
+      : 'No Twitch accounts linked yet.';
+    embed.setTitle('Twitch live notifications')
+      .setDescription('Link Twitch accounts to monitor their live status. When an account goes live, the bot posts one randomly selected message in the update channel.')
+      .addFields(
+        { name: `Linked accounts (${streamers.length}/${TWITCH_MAX_STREAMERS_PER_GUILD})`, value: streamerSummary.slice(0, 1024), inline: false },
+        { name: 'Twitch update channel', value: twitch.announcementChannelId ? `<#${twitch.announcementChannelId}>` : 'Not configured', inline: true },
+        { name: `Random live messages (${messages.length})`, value: messages.slice(0, 4).map((message, index) => `${index + 1}. ${String(message).slice(0, 180)}`).join('\\n').slice(0, 1024), inline: false },
+        { name: 'Available placeholders', value: '`{{streameruser}}` `{{streamlink}}` `{{streamtitle}}` `{{game}}` `{{viewers}}` `{{started}}`', inline: false },
+      );
+    const twitchMenu = new StringSelectMenuBuilder().setCustomId('jconfig:twitch_action').setPlaceholder('Choose a Twitch setting')
+      .addOptions(
+        { label: 'Link Twitch account', value: 'link_streamer', description: 'Add a Twitch username to monitor' },
+        { label: 'Unlink Twitch account', value: 'unlink_streamer', description: 'Stop monitoring a linked Twitch account' },
+        { label: 'Choose update channel', value: 'set_channel', description: 'Select where live notifications are posted' },
+        { label: 'Edit random live messages', value: 'edit_messages', description: 'Set up to 10 message templates, one per line' },
+        { label: 'Disable update channel', value: 'clear_channel', description: 'Stop posting Twitch live notifications' },
+      );
+    return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(twitchMenu)], flags: MessageFlags.Ephemeral };
   }
 
   embed.setTitle('Jail configuration');
@@ -331,6 +361,7 @@ function buildPaginatedChannelPicker(key, page, channels) {
       actionLogChannelId: 'an announcement channel',
       logsChannelId: 'a jail configuration log channel',
       avatarChangesChannelId: 'a member change log channel',
+      twitchAnnouncementChannelId: 'a Twitch update channel',
     })[key] ?? 'a channel'} (page ${safePage + 1}/${pageCount})`)
     .setMinValues(1)
     .setMaxValues(1)
@@ -413,6 +444,7 @@ export default {
     const isComponent = interaction.isButton?.() || interaction.isStringSelectMenu?.() || interaction.isRoleSelectMenu?.() || interaction.isChannelSelectMenu?.();
     const opensModal = (interaction.isStringSelectMenu?.() && (
       interaction.customId === 'jconfig:message_choice' ||
+      (interaction.customId === 'jconfig:twitch_action' && ['link_streamer', 'unlink_streamer', 'edit_messages'].includes(interaction.values?.[0])) ||
       (interaction.customId?.startsWith('jconfig:') && SETTINGS.some(setting => setting.value === interaction.values?.[0]))
     )) || (interaction.isButton?.() && (
       interaction.customId?.startsWith('jconfig:role_control:') && interaction.customId.endsWith(':search') ||
@@ -429,7 +461,7 @@ export default {
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:category:')) {
       const category = interaction.customId.slice('jconfig:category:'.length);
-      if (!['jail', 'logs'].includes(category)) return interaction.editReply({ content: 'Invalid configuration category.', embeds: [], components: [] });
+      if (!['jail', 'logs', 'twitch'].includes(category)) return interaction.editReply({ content: 'Invalid configuration category.', embeds: [], components: [] });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       return interaction.editReply(panelPayload(current ?? {}, category, 'settings'));
@@ -455,6 +487,56 @@ export default {
       if (!channels.length) return interaction.editReply({ content: 'No text channels were found in this server.', embeds: [], components: [] });
       const picker = buildPaginatedChannelPicker('avatarChangesChannelId', 0, channels);
       return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:twitch_action') {
+      const action = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const twitch = current?.twitch ?? {};
+      if (action === 'link_streamer' || action === 'unlink_streamer') {
+        const modal = new ModalBuilder()
+          .setCustomId(`jconfigmodal:twitch_${action === 'link_streamer' ? 'link' : 'unlink'}`)
+          .setTitle(action === 'link_streamer' ? 'Link Twitch account' : 'Unlink Twitch account');
+        const input = new TextInputBuilder()
+          .setCustomId('twitch_username')
+          .setLabel('Twitch username')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true)
+          .setMaxLength(25)
+          .setPlaceholder('Enter the Twitch username, without the URL');
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (action === 'edit_messages') {
+        const existingMessages = Array.isArray(twitch.liveMessages) && twitch.liveMessages.length
+          ? twitch.liveMessages.join('\\n')
+          : '{{streameruser}} IS NOW LIVE {{streamlink}}';
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:twitch_messages').setTitle('Edit Twitch live messages');
+        const input = new TextInputBuilder()
+          .setCustomId('twitch_messages')
+          .setLabel('One message template per line (up to 10)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(4000)
+          .setValue(existingMessages.slice(0, 4000))
+          .setPlaceholder('{{streameruser}} HAS WENT LIVE {{streamlink}}');
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        await interaction.showModal(modal);
+        return true;
+      }
+      if (action === 'set_channel') {
+        const channels = await getSelectableChannels(interaction.guild, ChannelType.GuildText);
+        if (!channels.length) return interaction.editReply({ content: 'No text channels were found in this server.', embeds: [], components: [] });
+        const picker = buildPaginatedChannelPicker('twitchAnnouncementChannelId', 0, channels);
+        return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+      }
+      if (action === 'clear_channel') {
+        await updateGuildConfig(client, interaction.guildId, { twitch: { ...twitch, announcementChannelId: null } });
+        await logConfigSave(interaction, current?.jail, 'Twitch update channel disabled', '**Channel:** Disabled');
+        return interaction.editReply({ content: 'Twitch live notifications are disabled because no update channel is selected.', embeds: [], components: [] });
+      }
+      return interaction.editReply({ content: 'Invalid Twitch setting.', embeds: [], components: [] });
     }
     if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:channel_action') {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.editReply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
@@ -516,6 +598,7 @@ export default {
         actionLogChannelId: { label: 'Announcement channel', type: ChannelType.GuildText },
         logsChannelId: { label: 'Jail configuration logs channel', type: ChannelType.GuildText },
         avatarChangesChannelId: { label: 'Profile picture log channel', type: ChannelType.GuildText },
+      twitchAnnouncementChannelId: { label: 'Twitch update channel', type: ChannelType.GuildText },
       }[key] ?? null;
       if (!setting) return interaction.editReply({ content: 'Invalid channel setting.', embeds: [], components: [] });
 
@@ -542,6 +625,12 @@ export default {
           embeds: [],
           components: [],
         });
+      }
+      if (key === 'twitchAnnouncementChannelId') {
+        const twitch = { ...(current?.twitch ?? {}), announcementChannelId: selectedChannel.id };
+        await updateGuildConfig(client, interaction.guildId, { twitch });
+        await logConfigSave(interaction, current?.jail, 'Twitch update channel', `**Channel:** <#${selectedChannel.id}>`);
+        return interaction.editReply({ content: `Saved Twitch update channel: <#${selectedChannel.id}>.`, embeds: [], components: [] });
       }
       const jail = { ...(current?.jail ?? {}), [key]: selectedChannel.id };
       await updateGuildConfig(client, interaction.guildId, { jail });
@@ -1002,6 +1091,70 @@ export default {
         ),
       ] });
     }
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:twitch_')) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: 'Only administrators can change server configuration.', flags: MessageFlags.Ephemeral });
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const twitch = { ...(current?.twitch ?? {}) };
+      const modalType = interaction.customId.slice('jconfigmodal:twitch_'.length);
+
+      if (modalType === 'link' || modalType === 'unlink') {
+        const username = interaction.fields.getTextInputValue('twitch_username').trim().replace(/^@/, '').toLowerCase();
+        if (!/^[a-z0-9_]{1,25}$/.test(username)) {
+          return interaction.editReply({ content: 'Enter a valid Twitch username (letters, numbers, and underscores only).' });
+        }
+
+        if (modalType === 'link') {
+          try {
+            const account = await lookupTwitchUser(username);
+            const streamers = Array.isArray(twitch.streamers) ? [...twitch.streamers] : [];
+            if (streamers.some(item => item?.userId === account.userId || String(item?.login ?? '').toLowerCase() === account.login.toLowerCase())) {
+              return interaction.editReply({ content: `@${account.login} is already linked.` });
+            }
+            if (streamers.length >= TWITCH_MAX_STREAMERS_PER_GUILD) {
+              return interaction.editReply({ content: `This server has reached the limit of ${TWITCH_MAX_STREAMERS_PER_GUILD} linked Twitch accounts.` });
+            }
+            streamers.push({ ...account, isLive: false, lastStreamId: null });
+            await updateGuildConfig(client, interaction.guildId, { twitch: { ...twitch, streamers } });
+            await logConfigSave(interaction, current?.jail, 'Twitch account linked', `**Account:** @${account.login}`);
+            return interaction.editReply({ content: `Linked Twitch account **@${account.login}**. The bot will announce when the account goes live.` });
+          } catch (error) {
+            return interaction.editReply({ content: error?.message || 'Could not link that Twitch account. Check the Twitch API credentials and try again.' });
+          }
+        }
+
+        const streamers = Array.isArray(twitch.streamers) ? twitch.streamers : [];
+        const existing = streamers.find(item => String(item?.login ?? '').toLowerCase() === username);
+        if (!existing) return interaction.editReply({ content: `@${username} is not currently linked to this server.` });
+        twitch.streamers = streamers.filter(item => item?.userId !== existing.userId);
+        await updateGuildConfig(client, interaction.guildId, { twitch });
+        await logConfigSave(interaction, current?.jail, 'Twitch account unlinked', `**Account:** @${existing.login}`);
+        return interaction.editReply({ content: `Unlinked Twitch account **@${existing.login}**. The bot will stop checking that account for this server.` });
+      }
+
+      if (modalType === 'messages') {
+        const raw = interaction.fields.getTextInputValue('twitch_messages').trim();
+        let messages;
+        if (!raw || /^default$/i.test(raw) || /^clear$/i.test(raw)) {
+          messages = ['{{streameruser}} IS NOW LIVE {{streamlink}}'];
+        } else {
+          messages = raw.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+          if (!messages.length) messages = ['{{streameruser}} IS NOW LIVE {{streamlink}}'];
+          if (messages.length > 10) return interaction.editReply({ content: 'You can configure up to 10 live-message templates. Put one message on each line.' });
+          const tooLong = messages.find(message => message.length > 1000);
+          if (tooLong) return interaction.editReply({ content: 'Each live-message template must be 1,000 characters or fewer.' });
+        }
+        await updateGuildConfig(client, interaction.guildId, { twitch: { ...twitch, liveMessages: messages } });
+        await logConfigSave(interaction, current?.jail, 'Twitch live messages', `**Template count:** ${messages.length}\\n**Templates:** ${messages.join('\\n').slice(0, 1800)}`);
+        return interaction.editReply({ content: `Saved ${messages.length} Twitch live-message template(s). The bot will choose one at random whenever a linked account goes live.\nUse {{streameruser}} for the streamer name and {{streamlink}} for their Twitch link.` });
+      }
+
+      return interaction.editReply({ content: 'Unknown Twitch configuration action.' });
+    }
+
     if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
         await interaction.reply({ content: 'Only administrators can change jail configuration.', flags: MessageFlags.Ephemeral });
