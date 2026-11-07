@@ -31,8 +31,9 @@ export async function logProfilePictureChange(client, guild, member, {
     .setTimestamp();
 
   await channel.send({
+    content: `<@${member.id}> changed their ${isServerAvatar ? 'server' : 'account'} profile picture.`,
     embeds: [embed],
-    allowedMentions: { parse: [] },
+    allowedMentions: { users: [member.id] },
   });
   return true;
 }
