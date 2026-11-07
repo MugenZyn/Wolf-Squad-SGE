@@ -24,16 +24,15 @@ export async function logProfilePictureChange(client, guild, member, {
       iconURL: newAvatarUrl,
     })
     .setDescription(
-      `**Member:** ${member.user?.tag || member.user?.username || member.displayName || 'Unknown member'}\n**User ID:** ${member.id}\n**Type:** ${isServerAvatar ? 'Server-specific profile picture' : 'Account profile picture'}`
+      `**Member:** <@${member.id}>\n**User ID:** ${member.id}\n**Type:** ${isServerAvatar ? 'Server-specific profile picture' : 'Account profile picture'}`
     )
     .setThumbnail(oldAvatarUrl)
     .setImage(newAvatarUrl)
     .setTimestamp();
 
   await channel.send({
-    content: `<@${member.id}> changed their ${isServerAvatar ? 'server' : 'account'} profile picture.`,
     embeds: [embed],
-    allowedMentions: { users: [member.id] },
+    allowedMentions: { parse: [] },
   });
   return true;
 }
