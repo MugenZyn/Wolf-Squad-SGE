@@ -108,6 +108,7 @@ function panelPayload(config, category = 'jail', page = 'settings') {
   const categoryNav = new ActionRowBuilder().addComponents(
     ...[
       ['jail', 'Jail'],
+      ['sound', 'Jail Sound'],
       ['logs', 'Logs'],
       ['twitch', 'Twitch'],
     ].map(([value, label]) => new ButtonBuilder()
@@ -131,6 +132,29 @@ function panelPayload(config, category = 'jail', page = 'settings') {
         { label: 'Disable member change logs', value: 'disable_avatar_changes', description: 'Stop logging profile picture, username, display name, and nickname changes' },
       );
     return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(logMenu)], flags: MessageFlags.Ephemeral };
+  }
+
+
+  if (category === 'sound') {
+    const configured = Boolean(jail.voiceSoundUrl || (jail.voiceSoundChannelId && jail.voiceSoundMessageId));
+    const status = !configured ? 'No sound uploaded' : (jail.voiceSoundEnabled ? 'Enabled' : 'Uploaded, disabled');
+    embed.setTitle('Jail voice sound')
+      .setDescription('Upload a sound with the optional jail_sound_file attachment on /config. The bot plays it in the member\'s voice channel when they are jailed, then disconnects that member after playback finishes. If the bot is already connected to voice elsewhere, playback is skipped and the member is left connected.')
+      .addFields(
+        { name: 'Status', value: status, inline: true },
+        { name: 'Current file', value: jail.voiceSoundFileName || 'None uploaded', inline: true },
+        { name: 'Upload requirements', value: 'MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, or WEBM\nMaximum file size: 15 MB\nMaximum playback length: 60 seconds', inline: false },
+        { name: 'Required permissions', value: 'View Channel, Connect, Speak, and Move Members', inline: false },
+      );
+    const soundActions = new StringSelectMenuBuilder()
+      .setCustomId('jconfig:jail_sound_action')
+      .setPlaceholder('Configure the voice jail sound')
+      .addOptions(
+        { label: 'Upload or replace sound', value: 'upload_help', description: 'Run /config and attach the jail_sound_file option' },
+        ...(configured ? [{ label: jail.voiceSoundEnabled ? 'Disable voice jail sound' : 'Enable voice jail sound', value: 'toggle', description: 'Turn the uploaded sound on or off' }] : []),
+        ...(configured ? [{ label: 'Remove uploaded sound', value: 'clear', description: 'Delete the saved sound file and disable playback' }] : []),
+      );
+    return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(soundActions)], flags: MessageFlags.Ephemeral };
   }
 
   if (category === 'twitch') {
@@ -176,17 +200,12 @@ function panelPayload(config, category = 'jail', page = 'settings') {
   );
   let controls = [];
   if (page === 'settings') {
-    const voiceSoundConfigured = Boolean(jail.voiceSoundUrl);
-    const voiceSoundStatus = !voiceSoundConfigured
-      ? 'No sound uploaded'
-      : (jail.voiceSoundEnabled ? 'Enabled' : 'Uploaded, disabled');
-    embed.setDescription('Configure jail durations, evidence defaults, and the optional voice jail sound. Upload or replace the sound with /config jail_sound_file:<audio file>.')
+    embed.setDescription('Configure jail durations and evidence defaults.')
       .addFields(
         { name: 'Default sentence', value: formatDuration(jail.defaultSentenceSeconds), inline: true },
         { name: 'Minimum sentence', value: formatDuration(jail.minimumSentenceSeconds ?? 600), inline: true },
         { name: 'Evidence messages', value: String(jail.evidenceMessageCount ?? 5), inline: true },
         { name: 'Default evidence note', value: jail.defaultMessage ? jail.defaultMessage.slice(0, 1000) : 'None', inline: false },
-        { name: 'Voice jail sound', value: `${voiceSoundStatus}\nFile: ${jail.voiceSoundFileName || 'None'}\nWhen played, the jailed member is disconnected after the sound finishes. The bot skips playback if it is already connected to voice.`, inline: false },
       );
     const editableSettings = SETTINGS.filter(setting => ['default_seconds', 'minimum_seconds', 'evidence_count', 'default_message'].includes(setting.value));
     const settingsMenu = new StringSelectMenuBuilder().setCustomId('jconfig:setting_choice')
@@ -196,14 +215,7 @@ function panelPayload(config, category = 'jail', page = 'settings') {
         value: setting.value,
         description: setting.description,
       })));
-    const soundActions = new StringSelectMenuBuilder()
-      .setCustomId('jconfig:jail_sound_action')
-      .setPlaceholder('Configure the voice jail sound')
-      .addOptions(
-        ...(voiceSoundConfigured ? [{ label: jail.voiceSoundEnabled ? 'Disable voice jail sound' : 'Enable voice jail sound', value: 'toggle', description: 'Turn the uploaded sound on or off' }] : [{ label: 'Upload a sound', value: 'upload_help', description: 'Use /config jail_sound_file and attach an MP3, WAV, OGG, or similar file' }]),
-        ...(voiceSoundConfigured ? [{ label: 'Remove uploaded sound', value: 'clear', description: 'Delete the saved sound file and disable playback' }] : []),
-      );
-    controls = [new ActionRowBuilder().addComponents(settingsMenu), new ActionRowBuilder().addComponents(soundActions)];
+    controls = [new ActionRowBuilder().addComponents(settingsMenu)];
   } else if (page === 'roles') {
     const jailRoleIds = (Array.isArray(jail.roles) ? jail.roles : []).map(item => item?.roleId).filter(Boolean);
     const policemanRoleIds = Array.isArray(jail.policemanRoleIds) ? jail.policemanRoleIds : [];
@@ -563,7 +575,7 @@ export default {
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:category:')) {
       const category = interaction.customId.slice('jconfig:category:'.length);
-      if (!['jail', 'logs', 'twitch'].includes(category)) return interaction.editReply({ content: 'Invalid configuration category.', embeds: [], components: [] });
+      if (!['jail', 'sound', 'logs', 'twitch'].includes(category)) return interaction.editReply({ content: 'Invalid configuration category.', embeds: [], components: [] });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       return interaction.editReply(panelPayload(current ?? {}, category, 'settings'));
