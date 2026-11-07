@@ -211,6 +211,11 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     if (audioBuffer.length > MAX_SOUND_BYTES) {
       throw new Error('The saved sound attachment exceeds the 15 MB limit.');
     }
+    if (cancellationReason) {
+      return cancellationReason === 'member_unjailed'
+        ? { status: 'cancelled', reason: 'member_unjailed' }
+        : { status: 'member_left', reason: 'member_left' };
+    }
 
     // Watch the member's original voice channel. Leaving or moving stops
     // playback and destroys the bot's voice connection immediately.
