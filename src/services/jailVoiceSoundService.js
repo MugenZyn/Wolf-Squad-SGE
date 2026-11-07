@@ -9,6 +9,7 @@ import {
   createAudioResource,
   entersState,
   getVoiceConnection,
+  getVoiceConnections,
   joinVoiceChannel,
 } from '@discordjs/voice';
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
@@ -129,8 +130,8 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     const botMember = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
     if (!botMember) return { status: 'skipped', reason: 'bot_member_unavailable' };
 
-    // This also catches music players or other voice systems using the bot account.
-    if (botMember.voice.channelId || getVoiceConnection(guild.id)) {
+    // Keep the bot to one active voice connection globally; never interrupt music or audio in another server.
+    if (activeVoiceSoundGuilds.size > 1 || getVoiceConnections().size > 0 || botMember.voice.channelId || getVoiceConnection(guild.id)) {
       return { status: 'skipped', reason: 'bot_busy' };
     }
 
