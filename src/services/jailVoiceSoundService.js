@@ -17,6 +17,7 @@ import { logger } from '../utils/logger.js';
 
 const activeVoiceSoundGuilds = new Set();
 const MAX_SOUND_SECONDS = 60;
+const MAX_SOUND_BYTES = 15 * 1024 * 1024;
 const PLAYBACK_TIMEOUT_MS = 75_000;
 
 function isDiscordAttachmentUrl(value) {
@@ -56,6 +57,7 @@ function waitForPlayback(player, ffmpeg) {
       player.off('error', onPlayerError);
       ffmpeg.off('error', onProcessError);
       ffmpeg.off('close', onProcessClose);
+      ffmpeg.stdin?.off('error', onInputError);
     };
     const finish = error => {
       if (settled) return;
@@ -74,10 +76,14 @@ function waitForPlayback(player, ffmpeg) {
     };
     const onPlayerError = error => finish(error);
     const onProcessError = error => finish(error);
-    const onProcessClose = code => {
+    const onInputError = error => finish(new Error('Could not pass the sound file to FFmpeg: ' + error.message));
+    const onProcessClose = (code, signal) => {
       exitCode = code;
       if (code !== 0) {
-        finish(new Error(stderr.trim() || 'FFmpeg could not decode the configured jail sound.'));
+        const reason = stderr.trim() || (signal
+          ? 'FFmpeg was terminated by signal ' + signal + '.'
+          : 'FFmpeg exited with code ' + code + ' without reporting a decoding error.');
+        finish(new Error(reason));
         return;
       }
       if (!started) {
@@ -97,6 +103,7 @@ function waitForPlayback(player, ffmpeg) {
     player.once('error', onPlayerError);
     ffmpeg.once('error', onProcessError);
     ffmpeg.once('close', onProcessClose);
+    ffmpeg.stdin?.once('error', onInputError);
   });
 }
 
@@ -163,6 +170,23 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       return { status: 'failed', reason: 'ffmpeg_unavailable' };
     }
 
+    playbackStage = 'downloading the saved sound attachment';
+    const audioResponse = await fetch(soundUrl, { signal: AbortSignal.timeout(20_000) });
+    if (!audioResponse.ok || !audioResponse.body) {
+      throw new Error('Discord sound attachment download returned HTTP ' + audioResponse.status + '.');
+    }
+    const declaredLength = Number(audioResponse.headers.get('content-length') || 0);
+    if (declaredLength > MAX_SOUND_BYTES) {
+      throw new Error('The saved sound attachment exceeds the 15 MB limit.');
+    }
+    const audioBuffer = Buffer.from(await audioResponse.arrayBuffer());
+    if (!audioBuffer.length) {
+      throw new Error('Discord returned an empty sound attachment.');
+    }
+    if (audioBuffer.length > MAX_SOUND_BYTES) {
+      throw new Error('The saved sound attachment exceeds the 15 MB limit.');
+    }
+
     playbackStage = 'joining the member voice channel';
     connection = joinVoiceChannel({
       channelId: voiceChannel.id,
@@ -189,7 +213,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       '-loglevel', 'error',
       '-nostdin',
       '-re',
-      '-i', soundUrl,
+      '-i', 'pipe:0',
       '-t', String(MAX_SOUND_SECONDS),
       '-vn',
       '-ac', '2',
@@ -198,7 +222,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       '-b:a', '96k',
       '-f', 'ogg',
       'pipe:1',
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     playbackStage = 'streaming the decoded sound into Discord voice';
     const playbackFinished = waitForPlayback(player, ffmpeg);
@@ -206,6 +230,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       inputType: StreamType.OggOpus,
     });
     player.play(resource);
+    ffmpeg.stdin.end(audioBuffer);
     await playbackFinished;
 
     playbackStage = 'disconnecting the member after successful playback';
