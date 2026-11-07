@@ -140,7 +140,7 @@ function panelPayload(config, category = 'jail', page = 'settings') {
       ? twitch.liveMessages
       : ['{{streameruser}} IS NOW LIVE {{streamlink}}'];
     const streamerSummary = streamers.length
-      ? streamers.slice(0, 12).map(item => `• **${String(item.displayName || item.login || 'Twitch user').slice(0, 80)}** (${item.login ? `@${item.login}` : 'account'})${item.isLive ? ' — LIVE' : ''}`).join('\n') + (streamers.length > 12 ? `\\n…and ${streamers.length - 12} more` : '')
+      ? streamers.slice(0, 12).map(item => `• **${String(item.displayName || item.login || 'Twitch user').slice(0, 80)}** (${item.login ? `@${item.login}` : 'account'})${item.isLive ? ' — LIVE' : ''}`).join('\n') + (streamers.length > 12 ? `\n…and ${streamers.length - 12} more` : '')
       : 'No Twitch accounts linked yet.';
     embed.setTitle('Twitch live notifications')
       .setDescription('Link Twitch accounts to monitor their live status. When an account goes live, the bot posts one randomly selected message in the update channel.')
@@ -1148,7 +1148,7 @@ export default {
           if (tooLong) return interaction.editReply({ content: 'Each live-message template must be 1,000 characters or fewer.' });
         }
         await updateGuildConfig(client, interaction.guildId, { twitch: { ...twitch, liveMessages: messages } });
-        await logConfigSave(interaction, current?.jail, 'Twitch live messages', `**Template count:** ${messages.length}\\n**Templates:** ${messages.join('\n').slice(0, 1800)}`);
+        await logConfigSave(interaction, current?.jail, 'Twitch live messages', `**Template count:** ${messages.length}\n**Templates:** ${messages.join('\n').slice(0, 1800)}`);
         return interaction.editReply({ content: `Saved ${messages.length} Twitch live-message template(s). The bot will choose one at random whenever a linked account goes live.\nUse {{streameruser}} for the streamer name and {{streamlink}} for their Twitch link.` });
       }
 
