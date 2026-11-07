@@ -396,7 +396,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('config')
-    .setDescription('View and change server configuration.')
+    .setDescription('View and change jail configuration.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction, guildConfig) {
