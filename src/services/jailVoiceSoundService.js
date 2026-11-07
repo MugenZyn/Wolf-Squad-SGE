@@ -16,6 +16,14 @@ import { ChannelType, PermissionFlagsBits } from 'discord.js';
 import { logger } from '../utils/logger.js';
 
 const activeVoiceSoundGuilds = new Set();
+const activeVoiceSoundSessions = new Map();
+
+export function cancelActiveJailVoiceSound(guildId, userId) {
+  const session = activeVoiceSoundSessions.get(`${guildId}:${userId}`);
+  if (!session) return false;
+  session.cancel('member_unjailed');
+  return true;
+}
 const MAX_SOUND_SECONDS = 60;
 const MAX_SOUND_BYTES = 15 * 1024 * 1024;
 const PLAYBACK_TIMEOUT_MS = 75_000;
@@ -133,11 +141,22 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
   let player = null;
   let ffmpeg = null;
   let voiceStateListener = null;
-  let memberLeftVoice = false;
-  let resolveMemberLeftVoice;
-  const memberLeftVoicePromise = new Promise(resolve => {
-    resolveMemberLeftVoice = resolve;
+  let cancellationReason = null;
+  let resolveCancellation;
+  const cancellationPromise = new Promise(resolve => {
+    resolveCancellation = resolve;
   });
+  const sessionKey = `${guild.id}:${target.id}`;
+  const cancelPlayback = reason => {
+    if (cancellationReason) return;
+    cancellationReason = reason;
+    resolveCancellation(reason);
+    try { player?.stop(true); } catch {}
+    try { if (ffmpeg && !ffmpeg.killed) ffmpeg.kill('SIGTERM'); } catch {}
+    try { connection?.destroy(); } catch {}
+  };
+  const session = { cancel: cancelPlayback };
+  activeVoiceSoundSessions.set(sessionKey, session);
   let playbackStage = 'checking bot voice permissions';
 
   try {
@@ -200,19 +219,18 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       if (oldUserId !== target.id || oldState.channelId !== voiceChannel.id || newState.channelId === voiceChannel.id) {
         return;
       }
-
-      memberLeftVoice = true;
-      resolveMemberLeftVoice();
-      try { player?.stop(true); } catch {}
-      try { if (ffmpeg && !ffmpeg.killed) ffmpeg.kill('SIGTERM'); } catch {}
-      try { connection?.destroy(); } catch {}
+      cancelPlayback('member_left');
     };
     client.on('voiceStateUpdate', voiceStateListener);
 
     const latestTarget = await guild.members.fetch(target.id).catch(() => target);
+    if (cancellationReason) {
+      return cancellationReason === 'member_unjailed'
+        ? { status: 'cancelled', reason: 'member_unjailed' }
+        : { status: 'member_left', reason: 'member_left' };
+    }
     if (!latestTarget.voice?.channelId || latestTarget.voice.channelId !== voiceChannel.id) {
-      memberLeftVoice = true;
-      resolveMemberLeftVoice();
+      cancelPlayback('member_left');
       return { status: 'member_left', reason: 'member_left' };
     }
 
@@ -233,12 +251,15 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       entersState(connection, VoiceConnectionStatus.Ready, 15_000)
         .then(() => 'ready')
         .catch(error => {
-          if (memberLeftVoice) return 'member_left';
+          if (cancellationReason) return cancellationReason;
           throw error;
         }),
-      memberLeftVoicePromise.then(() => 'member_left'),
+      cancellationPromise,
     ]);
-    if (connectionOutcome === 'member_left' || memberLeftVoice) {
+    if (connectionOutcome === 'member_unjailed') {
+      return { status: 'cancelled', reason: 'member_unjailed' };
+    }
+    if (connectionOutcome === 'member_left' || cancellationReason === 'member_left') {
       return { status: 'member_left', reason: 'member_left' };
     }
 
@@ -277,17 +298,22 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
         () => ({ status: 'finished' }),
         error => ({ status: 'error', error })
       ),
-      memberLeftVoicePromise.then(() => ({ status: 'member_left' })),
+      cancellationPromise.then(reason => ({ status: 'cancelled', reason })),
     ]);
-    if (playbackOutcome.status === 'member_left' || memberLeftVoice) {
-      return { status: 'member_left', reason: 'member_left' };
+    if (playbackOutcome.status === 'cancelled') {
+      return playbackOutcome.reason === 'member_unjailed'
+        ? { status: 'cancelled', reason: 'member_unjailed' }
+        : { status: 'member_left', reason: 'member_left' };
     }
     if (playbackOutcome.status === 'error') {
       throw playbackOutcome.error;
     }
 
     const freshTarget = await guild.members.fetch(target.id).catch(() => target);
-    if (memberLeftVoice || freshTarget.voice?.channelId !== voiceChannel.id) {
+    if (cancellationReason === 'member_unjailed') {
+      return { status: 'cancelled', reason: 'member_unjailed' };
+    }
+    if (cancellationReason === 'member_left' || freshTarget.voice?.channelId !== voiceChannel.id) {
       return { status: 'member_left', reason: 'member_left' };
     }
 
@@ -295,7 +321,8 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     // It disconnects the member after the jail roles have been assigned.
     return { status: 'played' };
   } catch (error) {
-    if (memberLeftVoice) return { status: 'member_left', reason: 'member_left' };
+    if (cancellationReason === 'member_unjailed') return { status: 'cancelled', reason: 'member_unjailed' };
+    if (cancellationReason === 'member_left') return { status: 'member_left', reason: 'member_left' };
     const rawError = error?.stack || error?.message || String(error);
     const safeError = String(rawError)
       .replace(/https?:\/\/\S+/g, '[URL REDACTED]')
@@ -313,6 +340,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     try { player?.stop(true); } catch {}
     try { if (ffmpeg && !ffmpeg.killed) ffmpeg.kill('SIGKILL'); } catch {}
     try { connection?.destroy(); } catch {}
+    if (activeVoiceSoundSessions.get(sessionKey) === session) activeVoiceSoundSessions.delete(sessionKey);
     activeVoiceSoundGuilds.delete(guild.id);
   }
 }
