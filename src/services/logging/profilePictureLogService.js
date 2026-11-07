@@ -36,3 +36,38 @@ export async function logProfilePictureChange(client, guild, member, {
   });
   return true;
 }
+
+/**
+ * Log account names and server nicknames to the same member-change channel
+ * used for profile-picture changes.
+ */
+export async function logMemberNameChange(client, guild, member, {
+  title = 'Member Name Changed',
+  changes = [],
+} = {}) {
+  if (!client || !guild || !member || !changes.length) return false;
+
+  const config = await getGuildConfig(client, guild.id);
+  const channelId = config?.logs?.avatarChangesChannelId;
+  if (!channelId) return false;
+
+  const channel = await guild.channels.fetch(channelId).catch(() => null);
+  if (!channel?.isTextBased?.() || typeof channel.send !== 'function') return false;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle(title)
+    .setDescription(`**Member:** <@${member.id}>\n**User ID:** ${member.id}`)
+    .addFields(changes.slice(0, 5).map(change => ({
+      name: String(change.label || 'Name').slice(0, 256),
+      value: `**Before:** ${String(change.oldValue ?? 'None').slice(0, 450)}\n**After:** ${String(change.newValue ?? 'None').slice(0, 450)}`,
+      inline: false,
+    })))
+    .setTimestamp();
+
+  await channel.send({
+    embeds: [embed],
+    allowedMentions: { parse: [] },
+  });
+  return true;
+}
