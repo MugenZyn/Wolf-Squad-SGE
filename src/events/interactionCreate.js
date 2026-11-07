@@ -74,7 +74,8 @@ export default {
         : null;
       await command.execute(interaction, guildConfig, client);
 
-      if (interaction.guild && guildConfig?.jail?.logsChannelId) {
+      // /config has its own save-only audit logging; browsing the panel is not a logged command.
+      if (interaction.commandName !== 'config' && interaction.guild && guildConfig?.jail?.logsChannelId) {
         const logChannel = await interaction.guild.channels.fetch(guildConfig.jail.logsChannelId).catch(() => null);
         if (logChannel?.isTextBased() && logChannel.guildId === interaction.guild.id) {
           const options = interaction.options?.data?.map(option => formatCommandOption(option, interaction)).filter(Boolean).join(' | ') || 'No options';
@@ -94,7 +95,7 @@ export default {
       }
     } catch (error) {
       logger.error(`Command /${interaction.commandName} failed:`, error);
-      if (interaction.guild) {
+      if (interaction.commandName !== 'config' && interaction.guild) {
         try {
           const failedConfig = await getGuildConfig(client, interaction.guild.id);
           const logChannel = failedConfig?.jail?.logsChannelId
