@@ -45,5 +45,29 @@ try {
   console.error('[git-sync] Could not determine deployed Git commit:', error.message);
 }
 
+console.log('[dependencies] Checking and installing production dependencies...');
+const install = await new Promise(resolve => {
+  const child = spawn('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], {
+    cwd: root,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let installOutput = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { installOutput += chunk; });
+  child.stderr.on('data', chunk => { installOutput += chunk; });
+  child.on('error', error => {
+    console.error('[dependencies] npm install could not start:', error.message);
+    resolve({ code: null, output: installOutput });
+  });
+  child.on('close', code => resolve({ code, output: installOutput }));
+});
+if (install.code === 0) {
+  console.log('[dependencies] Production dependencies are ready.');
+} else {
+  console.error(`[dependencies] npm install failed (exit ${install.code}).`);
+  if (install.output.trim()) console.error(install.output.trim());
+}
+
 console.log('[git-sync] Starting bot application...');
 await import('./bot.js');
