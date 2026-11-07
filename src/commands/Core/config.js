@@ -376,6 +376,7 @@ function buildPaginatedChannelPicker(key, page, channels) {
       actionLogChannelId: 'announcement channel',
       logsChannelId: 'jail configuration log channel',
       avatarChangesChannelId: 'member change log channel',
+      twitchAnnouncementChannelId: 'Twitch update channel',
     })[key] ?? 'channel'} — page ${safePage + 1} of ${pageCount} (${channels.length} available).`,
   };
 }
