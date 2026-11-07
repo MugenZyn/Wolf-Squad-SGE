@@ -35,6 +35,11 @@ export const GUILD_CONFIG_DEFAULTS = {
         actionLogChannelId: null,
         jailAnnouncement: '{{user}} HAS BEEN JAILED',
         unjailAnnouncement: '{{user}} HAS BEEN UNJAILED',
+        voiceSoundEnabled: false,
+        voiceSoundUrl: null,
+        voiceSoundFileName: null,
+        voiceSoundChannelId: null,
+        voiceSoundMessageId: null,
         lawyerRoleId: null,
     },
 };
