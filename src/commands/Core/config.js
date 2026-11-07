@@ -117,16 +117,16 @@ function panelPayload(config, category = 'jail', page = 'settings') {
 
   if (category === 'logs') {
     embed.setTitle('Logs configuration')
-      .setDescription('Choose where the bot should log member profile-picture changes. This includes account profile pictures and server-specific profile pictures.')
+      .setDescription('Choose where the bot logs profile pictures, account usernames, display names, and server nicknames.')
       .addFields({
-        name: 'Profile picture changes',
+        name: 'Profile picture, name & nickname changes',
         value: logs.avatarChangesChannelId ? `<#${logs.avatarChangesChannelId}>` : 'Disabled — no channel selected',
         inline: false,
       });
-    const logMenu = new StringSelectMenuBuilder().setCustomId('jconfig:log_action').setPlaceholder('Configure profile picture logs')
+    const logMenu = new StringSelectMenuBuilder().setCustomId('jconfig:log_action').setPlaceholder('Configure member change logs')
       .addOptions(
-        { label: 'Choose profile picture log channel', value: 'set_avatar_changes', description: 'Select a text channel for profile picture change logs' },
-        { label: 'Disable profile picture logs', value: 'disable_avatar_changes', description: 'Stop logging profile picture changes' },
+        { label: 'Choose member change log channel', value: 'set_avatar_changes', description: 'Select a text channel for profile picture, username, display name, and nickname logs' },
+        { label: 'Disable member change logs', value: 'disable_avatar_changes', description: 'Stop logging profile picture, username, display name, and nickname changes' },
       );
     return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(logMenu)], flags: MessageFlags.Ephemeral };
   }
@@ -330,7 +330,7 @@ function buildPaginatedChannelPicker(key, page, channels) {
       evidenceForumId: 'an evidence forum',
       actionLogChannelId: 'an announcement channel',
       logsChannelId: 'a jail configuration log channel',
-      avatarChangesChannelId: 'a profile picture log channel',
+      avatarChangesChannelId: 'a member change log channel',
     })[key] ?? 'a channel'} (page ${safePage + 1}/${pageCount})`)
     .setMinValues(1)
     .setMaxValues(1)
@@ -344,7 +344,7 @@ function buildPaginatedChannelPicker(key, page, channels) {
       evidenceForumId: 'jail evidence forum',
       actionLogChannelId: 'announcement channel',
       logsChannelId: 'jail configuration log channel',
-      avatarChangesChannelId: 'profile picture log channel',
+      avatarChangesChannelId: 'member change log channel',
     })[key] ?? 'channel'} — page ${safePage + 1} of ${pageCount} (${channels.length} available).`,
   };
 }
@@ -538,7 +538,7 @@ export default {
         const logs = { ...(current?.logs ?? {}), avatarChangesChannelId: selectedChannel.id };
         await updateGuildConfig(client, interaction.guildId, { logs });
         return interaction.editReply({
-          content: `Saved profile picture log channel: <#${selectedChannel.id}>.`,
+          content: `Saved member change log channel: <#${selectedChannel.id}>.`,
           embeds: [],
           components: [],
         });
