@@ -140,14 +140,14 @@ function panelPayload(config, category = 'jail', page = 'settings') {
       ? twitch.liveMessages
       : ['{{streameruser}} IS NOW LIVE {{streamlink}}'];
     const streamerSummary = streamers.length
-      ? streamers.slice(0, 12).map(item => `• **${String(item.displayName || item.login || 'Twitch user').slice(0, 80)}** (${item.login ? `@${item.login}` : 'account'})${item.isLive ? ' — LIVE' : ''}`).join('\\n') + (streamers.length > 12 ? `\\n…and ${streamers.length - 12} more` : '')
+      ? streamers.slice(0, 12).map(item => `• **${String(item.displayName || item.login || 'Twitch user').slice(0, 80)}** (${item.login ? `@${item.login}` : 'account'})${item.isLive ? ' — LIVE' : ''}`).join('\n') + (streamers.length > 12 ? `\\n…and ${streamers.length - 12} more` : '')
       : 'No Twitch accounts linked yet.';
     embed.setTitle('Twitch live notifications')
       .setDescription('Link Twitch accounts to monitor their live status. When an account goes live, the bot posts one randomly selected message in the update channel.')
       .addFields(
         { name: `Linked accounts (${streamers.length}/${TWITCH_MAX_STREAMERS_PER_GUILD})`, value: streamerSummary.slice(0, 1024), inline: false },
         { name: 'Twitch update channel', value: twitch.announcementChannelId ? `<#${twitch.announcementChannelId}>` : 'Not configured', inline: true },
-        { name: `Random live messages (${messages.length})`, value: messages.slice(0, 4).map((message, index) => `${index + 1}. ${String(message).slice(0, 180)}`).join('\\n').slice(0, 1024), inline: false },
+        { name: `Random live messages (${messages.length})`, value: messages.slice(0, 4).map((message, index) => `${index + 1}. ${String(message).slice(0, 180)}`).join('\n').slice(0, 1024), inline: false },
         { name: 'Available placeholders', value: '`{{streameruser}}` `{{streamlink}}` `{{streamtitle}}` `{{game}}` `{{viewers}}` `{{started}}`', inline: false },
       );
     const twitchMenu = new StringSelectMenuBuilder().setCustomId('jconfig:twitch_action').setPlaceholder('Choose a Twitch setting')
@@ -510,7 +510,7 @@ export default {
       }
       if (action === 'edit_messages') {
         const existingMessages = Array.isArray(twitch.liveMessages) && twitch.liveMessages.length
-          ? twitch.liveMessages.join('\\n')
+          ? twitch.liveMessages.join('\n')
           : '{{streameruser}} IS NOW LIVE {{streamlink}}';
         const modal = new ModalBuilder().setCustomId('jconfigmodal:twitch_messages').setTitle('Edit Twitch live messages');
         const input = new TextInputBuilder()
@@ -598,7 +598,7 @@ export default {
         actionLogChannelId: { label: 'Announcement channel', type: ChannelType.GuildText },
         logsChannelId: { label: 'Jail configuration logs channel', type: ChannelType.GuildText },
         avatarChangesChannelId: { label: 'Profile picture log channel', type: ChannelType.GuildText },
-      twitchAnnouncementChannelId: { label: 'Twitch update channel', type: ChannelType.GuildText },
+        twitchAnnouncementChannelId: { label: 'Twitch update channel', type: ChannelType.GuildText },
       }[key] ?? null;
       if (!setting) return interaction.editReply({ content: 'Invalid channel setting.', embeds: [], components: [] });
 
@@ -1141,14 +1141,14 @@ export default {
         if (!raw || /^default$/i.test(raw) || /^clear$/i.test(raw)) {
           messages = ['{{streameruser}} IS NOW LIVE {{streamlink}}'];
         } else {
-          messages = raw.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+          messages = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
           if (!messages.length) messages = ['{{streameruser}} IS NOW LIVE {{streamlink}}'];
           if (messages.length > 10) return interaction.editReply({ content: 'You can configure up to 10 live-message templates. Put one message on each line.' });
           const tooLong = messages.find(message => message.length > 1000);
           if (tooLong) return interaction.editReply({ content: 'Each live-message template must be 1,000 characters or fewer.' });
         }
         await updateGuildConfig(client, interaction.guildId, { twitch: { ...twitch, liveMessages: messages } });
-        await logConfigSave(interaction, current?.jail, 'Twitch live messages', `**Template count:** ${messages.length}\\n**Templates:** ${messages.join('\\n').slice(0, 1800)}`);
+        await logConfigSave(interaction, current?.jail, 'Twitch live messages', `**Template count:** ${messages.length}\\n**Templates:** ${messages.join('\n').slice(0, 1800)}`);
         return interaction.editReply({ content: `Saved ${messages.length} Twitch live-message template(s). The bot will choose one at random whenever a linked account goes live.\nUse {{streameruser}} for the streamer name and {{streamlink}} for their Twitch link.` });
       }
 
