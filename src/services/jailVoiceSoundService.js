@@ -295,17 +295,6 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
     // It disconnects the member after the jail roles have been assigned.
     return { status: 'played' };
   } catch (error) {
-        logger.warn('Jail sound played, but the jailed member could not be disconnected from voice.', {
-          guildId: guild.id,
-          userId: target.id,
-          error: error.message,
-        });
-        return { status: 'played_not_disconnected', reason: 'disconnect_failed' };
-      }
-    }
-
-    return { status: 'played', disconnected: true };
-  } catch (error) {
     if (memberLeftVoice) return { status: 'member_left', reason: 'member_left' };
     const rawError = error?.stack || error?.message || String(error);
     const safeError = String(rawError)
