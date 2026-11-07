@@ -86,17 +86,17 @@ function waitForPlayback(player, ffmpeg) {
 }
 
 /**
- * Plays the configured jail sound in the target member's current voice channel.
+ * Plays the configured jail sound in the target member's voice channel captured when /jail began.
  * The member is disconnected only after the complete sound is played successfully.
  * A bot already connected to voice is never moved or interrupted.
  */
-export async function playJailVoiceSound(client, target, jail = {}) {
+export async function playJailVoiceSound(client, target, jail = {}, originalVoiceChannelId = null) {
   if (!jail.voiceSoundEnabled || !jail.voiceSoundUrl) {
     return { status: 'skipped', reason: 'not_configured' };
   }
 
   const guild = target?.guild;
-  const voiceChannelId = target?.voice?.channelId;
+  const voiceChannelId = originalVoiceChannelId || target?.voice?.channelId;
   if (!guild || !voiceChannelId) {
     return { status: 'skipped', reason: 'not_in_voice' };
   }
