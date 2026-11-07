@@ -27,6 +27,20 @@ function isDiscordAttachmentUrl(value) {
   }
 }
 
+
+async function resolveStoredSoundUrl(guild, jail) {
+  if (jail.voiceSoundChannelId && jail.voiceSoundMessageId) {
+    const channel = await guild.channels.fetch(jail.voiceSoundChannelId).catch(() => null);
+    const message = channel?.messages?.fetch
+      ? await channel.messages.fetch(jail.voiceSoundMessageId).catch(() => null)
+      : null;
+    const attachment = message?.attachments?.first?.();
+    if (attachment?.url) return attachment.url;
+    return null;
+  }
+  return jail.voiceSoundUrl ?? null;
+}
+
 function waitForPlayback(player, ffmpeg) {
   return new Promise((resolve, reject) => {
     let started = false;
@@ -91,7 +105,8 @@ function waitForPlayback(player, ffmpeg) {
  * A bot already connected to voice is never moved or interrupted.
  */
 export async function playJailVoiceSound(client, target, jail = {}, originalVoiceChannelId = null) {
-  if (!jail.voiceSoundEnabled || !jail.voiceSoundUrl) {
+  const hasConfiguredSound = Boolean(jail.voiceSoundUrl || (jail.voiceSoundChannelId && jail.voiceSoundMessageId));
+  if (!jail.voiceSoundEnabled || !hasConfiguredSound) {
     return { status: 'skipped', reason: 'not_configured' };
   }
 
@@ -119,6 +134,11 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       return { status: 'skipped', reason: 'bot_busy' };
     }
 
+    const soundUrl = await resolveStoredSoundUrl(guild, jail);
+    if (!isDiscordAttachmentUrl(soundUrl)) {
+      return { status: 'failed', reason: 'sound_file_unavailable' };
+    }
+
     const voiceChannel = target.voice.channel
       ?? await guild.channels.fetch(voiceChannelId).catch(() => null);
     if (!voiceChannel || voiceChannel.type !== ChannelType.GuildVoice) {
@@ -136,9 +156,6 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       return { status: 'skipped', reason: 'missing_permissions' };
     }
 
-    if (!isDiscordAttachmentUrl(jail.voiceSoundUrl)) {
-      return { status: 'failed', reason: 'invalid_sound_url' };
-    }
     if (typeof ffmpegPath !== 'string' || !ffmpegPath) {
       return { status: 'failed', reason: 'ffmpeg_unavailable' };
     }
@@ -162,7 +179,7 @@ export async function playJailVoiceSound(client, target, jail = {}, originalVoic
       '-loglevel', 'error',
       '-nostdin',
       '-re',
-      '-i', jail.voiceSoundUrl,
+      '-i', soundUrl,
       '-t', String(MAX_SOUND_SECONDS),
       '-vn',
       '-ac', '2',
