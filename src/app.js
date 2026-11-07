@@ -1,8 +1,10 @@
 import 'dotenv/config';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = process.cwd();
+console.log(`[runtime] Node.js ${process.version}`);
+console.log(`[runtime] Platform ${process.platform} ${process.arch}`);
 console.log('[git-sync] Checking GitHub for updates on origin/newmain...');
 
 const pullCode = await new Promise(resolve => {
@@ -31,6 +33,13 @@ const pullCode = await new Promise(resolve => {
 
 if (pullCode !== 0) {
   console.error(`[git-sync] Pull failed (exit ${pullCode}); starting the currently installed files.`);
+}
+
+try {
+  const commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
+  console.log(`[git-sync] Running commit ${commit}`);
+} catch (error) {
+  console.error('[git-sync] Could not determine deployed Git commit:', error.message);
 }
 
 console.log('[git-sync] Starting bot application...');
