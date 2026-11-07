@@ -143,7 +143,7 @@ function panelPayload(config, category = 'jail', page = 'settings') {
       ? streamers.slice(0, 12).map(item => `• **${String(item.displayName || item.login || 'Twitch user').slice(0, 80)}** (${item.login ? `@${item.login}` : 'account'})${item.isLive ? ' — LIVE' : ''}`).join('\n') + (streamers.length > 12 ? `\n…and ${streamers.length - 12} more` : '')
       : 'No Twitch accounts linked yet.';
     embed.setTitle('Twitch live notifications')
-      .setDescription('Link Twitch accounts to monitor their live status. When an account goes live, the bot posts one randomly selected message in the update channel.')
+      .setDescription('Link Twitch accounts by username (streamers do not need to sign in). When an account goes live, the bot posts one randomly selected message in the update channel. Add TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET to the bot environment to enable Twitch API access.')
       .addFields(
         { name: `Linked accounts (${streamers.length}/${TWITCH_MAX_STREAMERS_PER_GUILD})`, value: streamerSummary.slice(0, 1024), inline: false },
         { name: 'Twitch update channel', value: twitch.announcementChannelId ? `<#${twitch.announcementChannelId}>` : 'Not configured', inline: true },
