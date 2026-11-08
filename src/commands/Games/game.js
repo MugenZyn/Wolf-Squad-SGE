@@ -450,6 +450,7 @@ export default {
           name: String(character.name),
           hints: Array.isArray(character.hints) ? character.hints.map(String) : [],
           imageUrl: typeof character.imageUrl === 'string' ? character.imageUrl : null,
+          wikiUrl: typeof character.wikiUrl === 'string' ? character.wikiUrl : null,
         })),
         players: new Map([[interaction.user.id, {
           id: interaction.user.id,
