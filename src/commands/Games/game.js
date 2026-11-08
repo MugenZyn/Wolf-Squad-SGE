@@ -182,6 +182,7 @@ function removeSession(session) {
 async function collectAnswers(session, activePlayerIds) {
   const answers = new Map();
   const activeIds = new Set(activePlayerIds);
+  if (![...activeIds].some(id => session.players.has(id))) return answers;
   await new Promise(resolve => {
     const collector = session.channel.createMessageCollector({
       time: ANSWER_WINDOW_MS,
@@ -253,6 +254,7 @@ async function runGame(session) {
         }).catch(() => null);
       }
       await sleep(1000);
+      if (session.cancelled || session.players.size === 0) break;
 
       const hints = Array.isArray(character.hints) ? character.hints : [];
       const hint = hints[Math.min(hintIndex, Math.max(0, hints.length - 1))] || 'No hint configured.';
