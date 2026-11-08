@@ -94,7 +94,8 @@ function lobbyPayload(session) {
       '\n**Game:** ' + session.game.name +
       '\n**Hosted by:** <@' + session.hostId + '>' +
       '\n\n' + playerList +
-      '\n\nPlayers can join below. The host starts the game when everyone is ready.'
+      (session.status === 'lobby' ? '\n\nPlayers can join below. The host starts the game when everyone is ready.' :
+        session.status === 'playing' ? '\n\nThe game is currently in progress.' : '\n\nThis game has finished.')
     )
     .addFields(
       { name: 'Players', value: String(players.length), inline: true },
