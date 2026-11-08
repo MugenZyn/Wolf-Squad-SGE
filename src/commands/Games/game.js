@@ -197,7 +197,6 @@ async function runGame(session) {
           '**Hint ' + (hintIndex + 1) + ':** ' + hint + '\n' +
           'Only the first message from each joined player during this answer window counts.'
         );
-      if (character.imageUrl) promptEmbed.setImage(character.imageUrl);
       await session.channel.send({
         content: '**SAY YOUR ANSWER NOW!** You have **15 seconds** to send one answer in this channel.',
         embeds: [promptEmbed],
@@ -247,8 +246,12 @@ async function runGame(session) {
       else characterFinished = true;
     }
 
+    const revealEmbed = new EmbedBuilder()
+      .setColor(0x2ECC71)
+      .setTitle('The character was ' + character.name + '.');
+    if (character.imageUrl) revealEmbed.setImage(character.imageUrl);
     await session.channel.send({
-      content: '**The character was ' + character.name + '.**',
+      embeds: [revealEmbed],
       allowedMentions: { parse: [] },
     });
 
