@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 import {
-  ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
+  ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
 } from 'discord.js';
 import { updateGuildConfig } from '../../services/config/guildConfig.js';
@@ -110,6 +111,51 @@ function getConfiguredGuessingGames(gamesConfig = {}) {
     .flatMap(category => (category.games ?? []).map(game => ({ ...game })));
 }
 
+const GUESSING_GAME_CODE_PREFIX = 'C4G1:';
+
+function encodeGuessingGameCode(game) {
+  const portableGame = {
+    name: String(game.name),
+    tries: Number(game.tries),
+    lives: Number(game.lives),
+    characters: (Array.isArray(game.characters) ? game.characters : []).map(character => ({
+      name: String(character.name),
+      hints: Array.isArray(character.hints) ? character.hints.map(String) : [],
+      ...(typeof character.imageUrl === 'string' && character.imageUrl ? { imageUrl: character.imageUrl } : {}),
+    })),
+  };
+  return GUESSING_GAME_CODE_PREFIX + deflateRawSync(Buffer.from(JSON.stringify({ version: 1, game: portableGame }), 'utf8')).toString('base64url');
+}
+
+function decodeGuessingGameCode(rawCode) {
+  const code = String(rawCode ?? '').trim();
+  if (!code.startsWith(GUESSING_GAME_CODE_PREFIX)) throw new Error('That is not a valid Conradd4 game code. It should start with C4G1:.');
+  let payload;
+  try {
+    const compressed = Buffer.from(code.slice(GUESSING_GAME_CODE_PREFIX.length), 'base64url');
+    if (!compressed.length || compressed.length > 100000) throw new Error('Invalid code size');
+    payload = JSON.parse(inflateRawSync(compressed, { maxOutputLength: 1000000 }).toString('utf8'));
+  } catch {
+    throw new Error('That game code is damaged or incomplete. Copy the entire code and try again.');
+  }
+  const game = payload?.game;
+  if (payload?.version !== 1 || !game || typeof game.name !== 'string' || !game.name.trim() || game.name.length > 80) throw new Error('The game code is missing a valid game name or uses an unsupported version.');
+  if (!Number.isInteger(game.tries) || game.tries < 1 || game.tries > 10 || !Number.isInteger(game.lives) || game.lives < 1 || game.lives > 10) throw new Error('The game code has invalid tries or lives settings.');
+  if (!Array.isArray(game.characters) || game.characters.length < 1 || game.characters.length > 25) throw new Error('Imported games must contain between 1 and 25 characters.');
+  const seen = new Set();
+  for (const character of game.characters) {
+    if (!character || typeof character.name !== 'string' || !character.name.trim() || character.name.length > 80 || !Array.isArray(character.hints) || !character.hints.length || character.hints.some(hint => typeof hint !== 'string' || !hint.trim() || hint.length > 250)) throw new Error('The game code contains a character with an invalid name or hints.');
+    const key = character.name.trim().toLowerCase();
+    if (seen.has(key)) throw new Error('The game code contains duplicate character names: ' + character.name);
+    seen.add(key);
+    if (character.imageUrl != null) {
+      if (typeof character.imageUrl !== 'string' || character.imageUrl.length > 1000) throw new Error('The game code contains an invalid character image URL.');
+      try { const url = new URL(character.imageUrl); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid protocol'); }
+      catch { throw new Error('The game code contains an invalid character image URL.'); }
+    }
+  }
+  return { name: game.name.trim(), tries: game.tries, lives: game.lives, characters: game.characters.map(character => ({ name: character.name.trim(), hints: character.hints.map(hint => hint.trim()), ...(character.imageUrl ? { imageUrl: character.imageUrl } : {}) })) };
+}
 function gamesPanelPayload(config, categoryNav, gameId = null) {
   const gamesConfig = config?.games ?? {};
   const guessingGames = getConfiguredGuessingGames(gamesConfig);
@@ -123,7 +169,10 @@ function gamesPanelPayload(config, categoryNav, gameId = null) {
       ? guessingGames.map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.characters?.length ?? 0) + ' character(s), ' + (item.tries ?? 3) + ' tries, ' + (item.lives ?? 3) + ' lives').join('\n').slice(0, 1000)
       : 'No guessing games have been created yet.';
     embed.addFields({ name: 'Configured games', value: summary });
-    const options = [{ label: 'Create a guessing game', value: 'create_game', description: 'Set its name, tries, and lives' }];
+    const options = [
+      { label: 'Create a guessing game', value: 'create_game', description: 'Set its name, tries, and lives' },
+      { label: 'Import a game code', value: 'import_game', description: 'Create a game from a Conradd4 export code' },
+    ];
     guessingGames.slice(0, 24).forEach(item => options.push({
       label: String(item.name).slice(0, 100),
       value: 'open:' + item.id,
@@ -154,6 +203,7 @@ function gamesPanelPayload(config, categoryNav, gameId = null) {
     .addOptions(
       { label: 'Edit game settings', value: 'edit_settings', description: 'Change the name, tries per character, and lives' },
       { label: 'Edit characters and hints', value: 'edit_characters', description: 'Replace or update the character list and hints' },
+      { label: 'Export game code', value: 'export_game', description: 'Create a shareable code for this game' },
       { label: 'Delete guessing game', value: 'delete_game', description: 'Remove this guessing game' },
     );
   const back = new ActionRowBuilder().addComponents(
@@ -633,7 +683,7 @@ export default {
     const isComponent = interaction.isButton?.() || interaction.isStringSelectMenu?.() || interaction.isRoleSelectMenu?.() || interaction.isChannelSelectMenu?.();
     const opensModal = (interaction.isStringSelectMenu?.() && (
       interaction.customId === 'jconfig:message_choice' ||
-      (interaction.customId === 'jconfig:games_list_action' && interaction.values?.[0] === 'create_game') ||
+      (interaction.customId === 'jconfig:games_list_action' && ['create_game', 'import_game'].includes(interaction.values?.[0])) ||
       (interaction.customId?.startsWith('jconfig:games_game_action:') && ['edit_settings', 'edit_characters'].includes(interaction.values?.[0])) ||
       (interaction.customId === 'jconfig:twitch_action' && ['link_streamer', 'unlink_streamer', 'edit_messages'].includes(interaction.values?.[0])) ||
       (interaction.customId?.startsWith('jconfig:') && SETTINGS.some(setting => setting.value === interaction.values?.[0]))
@@ -686,6 +736,13 @@ export default {
     }
     if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:games_list_action') {
       const action = interaction.values[0];
+      if (action === 'import_game') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_import_game').setTitle('Import guessing game');
+        const input = new TextInputBuilder().setCustomId('game_code').setLabel('Paste the complete game code').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
+        input.setPlaceholder('C4G1:...');
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+      }
       if (action === 'create_game') {
         const modal = new ModalBuilder().setCustomId('jconfigmodal:games_create_game').setTitle('Create guessing game');
         const name = new TextInputBuilder().setCustomId('game_name').setLabel('Guessing game name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80);
@@ -713,7 +770,12 @@ export default {
       }
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
-      const game = getConfiguredGuessingGames(current?.games ?? {}).find(item => item.id === gameId);
+      const game = getConfiguredGuessingGames(current?.games ?? {}).find(item => item.id === gameId);      if (action === 'export_game' && game) {
+        const code = encodeGuessingGameCode(game);
+        const filename = String(game.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'guessing-game';
+        const file = new AttachmentBuilder(Buffer.from(code, 'utf8'), { name: filename + '-game-code.txt' });
+        return interaction.reply({ content: '**Game code exported:** ' + game.name + '\nImport this file’s code under /config → Games → Import a game code.', files: [file], flags: MessageFlags.Ephemeral });
+      }
       if (!game) return interaction.editReply({ content: 'That guessing game no longer exists.', embeds: [], components: [] });
       if (action === 'edit_settings') {
         const modal = new ModalBuilder().setCustomId('jconfigmodal:games_edit_game:' + gameId).setTitle('Edit guessing game');
@@ -1406,6 +1468,27 @@ export default {
           new ButtonBuilder().setCustomId(`jconfig:cancel_roles:${kind}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
         ),
       ] });
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId === 'jconfigmodal:games_import_game') {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return interaction.reply({ content: 'Only administrators can import game configuration.', flags: MessageFlags.Ephemeral });
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const games = { ...(current?.games ?? {}) };
+      const guessingGames = getConfiguredGuessingGames(games);
+      if (guessingGames.length >= 25) return interaction.editReply({ content: 'This server has reached the limit of 25 guessing games. Delete one before importing another.' });
+      let imported;
+      try { imported = decodeGuessingGameCode(interaction.fields.getTextInputValue('game_code')); }
+      catch (error) { return interaction.editReply({ content: error.message || 'Could not import that game code.' }); }
+      if (guessingGames.some(game => String(game.name).toLowerCase() === imported.name.toLowerCase())) return interaction.editReply({ content: 'A guessing game with that name already exists. Rename or delete the existing game before importing this one.' });
+      const gameId = randomUUID().replace(/-/g, '').slice(0, 8);
+      guessingGames.push({ id: gameId, ...imported });
+      games.guessingGames = guessingGames;
+      delete games.guessingCategories;
+      await updateGuildConfig(client, interaction.guildId, { games });
+      await logConfigSave(interaction, current?.jail, 'Guessing game imported', '**Game:** ' + imported.name + '\n**Characters:** ' + imported.characters.length);
+      return interaction.editReply({ content: 'Imported **' + imported.name + '** with ' + imported.characters.length + ' character(s).', ...panelPayload({ ...(current ?? {}), games }, 'games', 'settings', gameId) });
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:games_')) {
