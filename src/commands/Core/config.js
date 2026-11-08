@@ -175,7 +175,7 @@ function gamesPanelPayload(config, categoryNav, categoryId = null, gameId = null
           : 'No characters configured. Add characters and hints before players can use this game.',
         inline: false,
       },
-      { name: 'Character format', value: 'One character per line: Character name | Hint 1 | Hint 2 | Hint 3. Use up to 5 hints per character.', inline: false },
+      { name: 'Character format', value: 'One character per line: Character name | hint 1, hint 2, hint 3. Use up to 5 comma-separated hints.', inline: false },
     );
   const actions = new StringSelectMenuBuilder()
     .setCustomId('jconfig:games_game_action:' + category.id + ':' + game.id)
@@ -810,8 +810,8 @@ export default {
       // The submit handler validates the category and game IDs before saving.
       if (action === 'edit_characters') {
         const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + categoryId + ':' + gameId).setTitle('Edit characters and hints');
-        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('One character per line: Name | Hint 1 | Hint 2').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
-        input.setPlaceholder('Ichigo Kurosaki | Substitute Soul Reaper | Uses Zangetsu');
+        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('One character per line: Name | hints, comma-separated').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
+        input.setPlaceholder('Ichigo Kurosaki | substitute soul reaper, uses Zangetsu');
         modal.addComponents(new ActionRowBuilder().addComponents(input));
         return interaction.showModal(modal);
       }
@@ -1592,9 +1592,9 @@ export default {
           for (const row of rows) {
             const values = row.split('|').map(value => value.trim());
             const characterName = values.shift();
-            const hints = values.filter(Boolean);
+            const hints = values.length === 1 ? values[0].split(',').map(value => value.trim()).filter(Boolean) : values.slice(1).join(',').split(',').map(value => value.trim()).filter(Boolean);
             if (!characterName || characterName.length > 80 || hints.length < 1 || hints.length > 5 || hints.some(hint => hint.length > 250)) {
-              return interaction.editReply({ content: 'Each line must contain a character name followed by 1–5 hints, separated by |. Names must be 1–80 characters and hints must be 250 characters or fewer.' });
+              return interaction.editReply({ content: 'Each line must contain a character name, then |, then 1–5 hints separated by commas. Names must be 1–80 characters and hints must be 250 characters or fewer.' });
             }
             const key = characterName.toLowerCase();
             if (seen.has(key)) return interaction.editReply({ content: 'Character names must be unique within a guessing game. Duplicate found: ' + characterName });
