@@ -122,6 +122,7 @@ function encodeGuessingGameCode(game) {
       name: String(character.name),
       hints: Array.isArray(character.hints) ? character.hints.map(String) : [],
       ...(typeof character.imageUrl === 'string' && character.imageUrl ? { imageUrl: character.imageUrl } : {}),
+      ...(typeof character.wikiUrl === 'string' && character.wikiUrl ? { wikiUrl: character.wikiUrl } : {}),
     })),
   };
   return GUESSING_GAME_CODE_PREFIX + deflateRawSync(Buffer.from(JSON.stringify({ version: 1, game: portableGame }), 'utf8')).toString('base64url');
@@ -153,8 +154,13 @@ function decodeGuessingGameCode(rawCode) {
       try { const url = new URL(character.imageUrl); if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid protocol'); }
       catch { throw new Error('The game code contains an invalid character image URL.'); }
     }
+    if (character.wikiUrl != null) {
+      if (typeof character.wikiUrl !== 'string' || character.wikiUrl.length > 1000) throw new Error('The game code contains an invalid character wiki URL.');
+      try { const url = new URL(character.wikiUrl); if (!['https:'].includes(url.protocol) || !/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$/i.test(url.hostname)) throw new Error('Invalid wiki host'); }
+      catch { throw new Error('The game code contains an invalid character wiki URL.'); }
+    }
   }
-  return { name: game.name.trim(), tries: game.tries, lives: game.lives, characters: game.characters.map(character => ({ name: character.name.trim(), hints: character.hints.map(hint => hint.trim()), ...(character.imageUrl ? { imageUrl: character.imageUrl } : {}) })) };
+  return { name: game.name.trim(), tries: game.tries, lives: game.lives, characters: game.characters.map(character => ({ name: character.name.trim(), hints: character.hints.map(hint => hint.trim()), ...(character.imageUrl ? { imageUrl: character.imageUrl } : {}), ...(character.wikiUrl ? { wikiUrl: character.wikiUrl } : {}) })) };
 }
 function gamesPanelPayload(config, categoryNav, gameId = null) {
   const gamesConfig = config?.games ?? {};
