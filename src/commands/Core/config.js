@@ -156,7 +156,7 @@ function decodeGuessingGameCode(rawCode) {
     }
     if (character.wikiUrl != null) {
       if (typeof character.wikiUrl !== 'string' || character.wikiUrl.length > 1000) throw new Error('The game code contains an invalid character wiki URL.');
-      try { const url = new URL(character.wikiUrl); if (!['https:'].includes(url.protocol) || !/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$/i.test(url.hostname)) throw new Error('Invalid wiki host'); }
+      try { const url = new URL(character.wikiUrl); if (!['https:'].includes(url.protocol) || !/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$|(?:^|\\.)wiki\\.gg$/i.test(url.hostname)) throw new Error('Invalid wiki host'); }
       catch { throw new Error('The game code contains an invalid character wiki URL.'); }
     }
   }
