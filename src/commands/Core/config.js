@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, EmbedBuilder, MessageFlags, ModalBuilder, PermissionFlagsBits,
   SlashCommandBuilder, StringSelectMenuBuilder, TextInputBuilder, TextInputStyle,
@@ -716,8 +717,8 @@ export default {
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:games_confirm_delete_game:')) {
       const parts = interaction.customId.split(':');
-      const categoryId = parts[3];
-      const gameId = parts[4];
+      const categoryId = parts[2];
+      const gameId = parts[3];
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const games = { ...(current?.games ?? {}) };
