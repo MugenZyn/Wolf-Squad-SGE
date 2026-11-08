@@ -133,19 +133,32 @@ function lobbyPayload(session) {
       { name: 'Tries per character', value: String(session.game.tries), inline: true },
       { name: 'Winning score', value: 'First to ' + session.winningScore, inline: true },
     );
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('game:join:' + session.token)
-      .setLabel('Join game')
-      .setStyle(ButtonStyle.Success)
-      .setDisabled(session.status !== 'lobby'),
-    new ButtonBuilder()
-      .setCustomId('game:start:' + session.token)
-      .setLabel('Start game')
-      .setStyle(ButtonStyle.Primary)
-      .setDisabled(session.status !== 'lobby' || players.length === 0),
-  );
-  return { embeds: [embed], components: session.status === 'lobby' ? [row] : [], allowedMentions: { parse: [] } };
+  const components = [];
+  if (session.status === 'lobby' && players.length > 0) {
+    components.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('game:join:' + session.token)
+        .setLabel('Join game')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId('game:start:' + session.token)
+        .setLabel('Start game')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(players.length === 0),
+      new ButtonBuilder()
+        .setCustomId('game:leave:' + session.token)
+        .setLabel('Leave game')
+        .setStyle(ButtonStyle.Danger),
+    ));
+  } else if (session.status === 'playing' && players.length > 0) {
+    components.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('game:leave:' + session.token)
+        .setLabel('Leave game')
+        .setStyle(ButtonStyle.Danger),
+    ));
+  }
+  return { embeds: [embed], components, allowedMentions: { parse: [] } };
 }
 
 function hasActiveChannelSession(guildId, channelId) {
@@ -172,14 +185,19 @@ async function collectAnswers(session, activePlayerIds) {
   await new Promise(resolve => {
     const collector = session.channel.createMessageCollector({
       time: ANSWER_WINDOW_MS,
-      filter: message => !message.author.bot && activeIds.has(message.author.id),
+      filter: message => !message.author.bot && activeIds.has(message.author.id) && session.players.has(message.author.id),
     });
+    session.answerCollection = { collector, answers, activeIds };
     collector.on('collect', message => {
       if (answers.has(message.author.id)) return;
       answers.set(message.author.id, message.content.trim());
-      if (answers.size >= activeIds.size) collector.stop('all_answered');
+      const remainingIds = [...activeIds].filter(id => session.players.has(id));
+      if (remainingIds.every(id => answers.has(id))) collector.stop('all_answered');
     });
-    collector.on('end', resolve);
+    collector.on('end', () => {
+      if (session.answerCollection?.collector === collector) session.answerCollection = null;
+      resolve();
+    });
   });
   return answers;
 }
@@ -252,6 +270,7 @@ async function runGame(session) {
       });
 
       const answers = await collectAnswers(session, activeIds);
+      if (session.cancelled || session.players.size === 0) break;
       const correctPlayers = [];
       const missedPlayers = [];
       const failedPlayers = [];
@@ -286,13 +305,18 @@ async function runGame(session) {
           return '<@' + id + '> (' + player.lives + ' life/lives left)';
         }).join(', '));
       }
-      const stillTrying = [...playerStates.values()].some(state => !state.solved && !state.eliminated && state.tries > 0);
+      const stillTrying = [...playerStates.entries()].some(([id, state]) => {
+        const player = session.players.get(id);
+        return player && player.lives > 0 && !state.solved && !state.eliminated && state.tries > 0;
+      });
       if (resultLines.length) {
         await session.channel.send({ content: resultLines.join('\n'), allowedMentions: { parse: [] } });
       }
       if (stillTrying) hintIndex += 1;
       else characterFinished = true;
     }
+
+    if (session.cancelled || session.players.size === 0) break;
 
     const revealEmbed = new EmbedBuilder()
       .setColor(0x2ECC71)
@@ -328,12 +352,12 @@ async function runGame(session) {
     );
   const embed = new EmbedBuilder()
     .setColor(0x2ECC71)
-    .setTitle(session.winners?.length ? 'Winning score reached!' : 'Guessing game finished!')
+    .setTitle(session.cancelled ? 'Game cancelled — everyone left' : session.winners?.length ? 'Winning score reached!' : 'Guessing game finished!')
     .setDescription(
       '**Game:** ' + session.game.name +
       '\n**Winning criteria:** First to ' + session.winningScore + ' correct guesses' +
       (session.winners?.length ? '\n**Winner(s):** ' + session.winners.map(player => '<@' + player.id + '>').join(', ') : '') +
-      '\n\n' + (finalStandings.join('\n') || 'No final scores.')
+      (session.cancelled ? '\n\nEveryone left the game, so it was cancelled.' : '\n\n' + (finalStandings.join('\n') || 'No final scores.'))
     );
   await session.channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
   await session.lobbyMessage.edit(lobbyPayload(session)).catch(() => null);
@@ -483,6 +507,47 @@ export default {
         content: 'Your public game lobby is ready: ' + session.lobbyMessage.url,
         flags: MessageFlags.Ephemeral,
       });
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith('game:leave:')) {
+      const token = interaction.customId.slice('game:leave:'.length);
+      const session = getSession(token, interaction.guildId);
+      if (!session || !['lobby', 'playing'].includes(session.status)) {
+        return interaction.reply({ content: 'That game is no longer active.', flags: MessageFlags.Ephemeral });
+      }
+      if (!session.players.has(interaction.user.id)) {
+        return interaction.reply({ content: 'You are not currently in this game.', flags: MessageFlags.Ephemeral });
+      }
+
+      session.players.delete(interaction.user.id);
+      if (session.hostId === interaction.user.id && session.players.size > 0) {
+        session.hostId = session.players.keys().next().value;
+      }
+
+      if (session.status === 'playing' && session.answerCollection) {
+        const { collector, answers, activeIds } = session.answerCollection;
+        activeIds.delete(interaction.user.id);
+        const remainingIds = [...activeIds].filter(id => session.players.has(id));
+        if (remainingIds.every(id => answers.has(id))) collector.stop('all_answered');
+      }
+
+      if (session.players.size === 0) {
+        if (session.status === 'lobby') {
+          session.status = 'expired';
+          removeSession(session);
+          return interaction.update({
+            content: 'This game lobby was cancelled because everyone left.',
+            embeds: [],
+            components: [],
+            allowedMentions: { parse: [] },
+          });
+        }
+        session.cancelled = true;
+        session.answerCollection?.collector.stop('all_players_left');
+      }
+
+      await interaction.update(lobbyPayload(session));
+      return true;
     }
 
     if (interaction.isButton() && interaction.customId.startsWith('game:join:')) {
