@@ -127,12 +127,20 @@ function buildSessionPayload(session, resultMessage = '') {
   return { embeds: [embed], components: [controls], allowedMentions: { parse: [] } };
 }
 
+function removeSession(session) {
+  if (!session) return;
+  activeSessions.delete(session.token);
+  if (activeUserSessions.get(session.userKey) === session.token) {
+    activeUserSessions.delete(session.userKey);
+  }
+  if (session.expiryTimer) clearTimeout(session.expiryTimer);
+}
+
 function getSession(interaction, token) {
   const session = activeSessions.get(token);
   if (!session || session.guildId !== interaction.guildId || session.userId !== interaction.user.id) return null;
   if (Date.now() - session.createdAt > SESSION_TTL_MS) {
-    activeSessions.delete(token);
-    activeUserSessions.delete(session.userKey);
+    removeSession(session);
     return null;
   }
   return session;
@@ -140,10 +148,7 @@ function getSession(interaction, token) {
 
 function finishOrAdvance(session, resultMessage) {
   nextCharacter(session);
-  if (session.finished) {
-    activeSessions.delete(session.token);
-    activeUserSessions.delete(session.userKey);
-  }
+  if (session.finished) removeSession(session);
   return buildSessionPayload(session, resultMessage);
 }
 
@@ -207,7 +212,7 @@ export default {
 
       const userKey = interaction.guildId + ':' + interaction.user.id;
       const previousToken = activeUserSessions.get(userKey);
-      if (previousToken) activeSessions.delete(previousToken);
+      if (previousToken) removeSession(activeSessions.get(previousToken));
 
       const session = {
         token: randomUUID().replace(/-/g, '').slice(0, 12),
@@ -234,6 +239,8 @@ export default {
       nextCharacter(session);
       activeSessions.set(session.token, session);
       activeUserSessions.set(userKey, session.token);
+      session.expiryTimer = setTimeout(() => removeSession(session), SESSION_TTL_MS);
+      session.expiryTimer.unref?.();
       return interaction.update(buildSessionPayload(session, 'Started! Guess each character before your tries run out.'));
     }
 
