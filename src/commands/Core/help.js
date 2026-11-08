@@ -14,7 +14,8 @@ function commandList(client) {
 }
 
 function categoryFor(name) {
-  if (/jail|unjail|setup-jail|config/.test(name)) return 'Jail & Configuration';
+  if (/^game$/.test(name)) return 'Games';
+  if (/jail|unjail|setup-jail|clear-logs|^log$|config/.test(name)) return 'Jail & Configuration';
   if (/ban|kick|mute|timeout|warn|purge|clear|mod|lock|unlock/.test(name)) return 'Moderation';
   if (/ticket|report|application/.test(name)) return 'Server Management';
   if (/welcome|verify|role|reaction|autorole/.test(name)) return 'Roles & Onboarding';
