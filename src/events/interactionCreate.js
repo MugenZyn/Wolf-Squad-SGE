@@ -37,6 +37,10 @@ export default {
     patchInteractionTextResponses(interaction);
     if (interaction.guild) patchGuildChannelMessages(interaction.guild);
     if (interaction.isButton() || interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu() || interaction.isModalSubmit()) {
+      if (interaction.customId?.startsWith('game:')) {
+        const gameCommand = client.commands.get('game');
+        if (gameCommand?.handleComponent) return gameCommand.handleComponent(interaction, client);
+      }
       if (interaction.customId?.startsWith('jsetup:')) {
         const setupCommand = client.commands.get('setup-jail');
         if (setupCommand?.handleComponent) return setupCommand.handleComponent(interaction, client);
