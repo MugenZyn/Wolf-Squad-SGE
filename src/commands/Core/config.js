@@ -156,7 +156,7 @@ function decodeGuessingGameCode(rawCode) {
     }
     if (character.wikiUrl != null) {
       if (typeof character.wikiUrl !== 'string' || character.wikiUrl.length > 1000) throw new Error('The game code contains an invalid character wiki URL.');
-      try { const url = new URL(character.wikiUrl); if (!['https:'].includes(url.protocol) || !/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$|(?:^|\\.)wiki\\.gg$/i.test(url.hostname)) throw new Error('Invalid wiki host'); }
+      try { const url = new URL(character.wikiUrl); if (!['https:'].includes(url.protocol) || !/(?:^|\.)fandom\.com$|(?:^|\.)wikia\.org$|(?:^|\.)wiki\.gg$/i.test(url.hostname)) throw new Error('Invalid wiki host'); }
       catch { throw new Error('The game code contains an invalid character wiki URL.'); }
     }
   }
@@ -605,7 +605,7 @@ export default {
     const gameAttachment = interaction.options.getAttachment('guessing_game_file');
     if (gameAttachment) {
       const fileName = String(gameAttachment.name || 'guessing-game.txt');
-      if (!/\\.(?:txt|c4g)$/i.test(fileName)) {
+      if (!/\.(?:txt|c4g)$/i.test(fileName)) {
         return interaction.reply({ content: 'UPLOAD THE GAME EXPORT AS A .TXT OR .C4G FILE.', flags: MessageFlags.Ephemeral });
       }
       if (Number(gameAttachment.size) > 8 * 1024 * 1024) {
