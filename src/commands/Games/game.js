@@ -75,6 +75,43 @@ function getConfiguredGuessingGames(gamesConfig = {}) {
     .flatMap(category => (category.games ?? []).map(game => ({ ...game })));
 }
 
+const characterWikiImageCache = new Map();
+
+async function getCharacterRevealImage(character) {
+  if (character?.imageUrl) return character.imageUrl;
+  const wikiUrl = character?.wikiUrl;
+  if (!wikiUrl) return null;
+  if (characterWikiImageCache.has(wikiUrl)) return characterWikiImageCache.get(wikiUrl);
+  let imageUrl = null;
+  try {
+    const pageUrl = new URL(wikiUrl);
+    if (pageUrl.protocol !== 'https:' || !/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$/i.test(pageUrl.hostname)) return null;
+    const response = await fetch(pageUrl, {
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; Conradd4/1.0; character image preview)' },
+      signal: AbortSignal.timeout(7000),
+    });
+    if (!response.ok) return null;
+    const finalHost = new URL(response.url).hostname;
+    if (!/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$/i.test(finalHost)) return null;
+    const html = await response.text();
+    const metaTags = html.match(/<meta\\b[^>]*>/gi) ?? [];
+    for (const tag of metaTags) {
+      if (!/(?:property|name)=["']og:image["']/i.test(tag)) continue;
+      const match = tag.match(/content=["']([^"']+)["']/i);
+      if (!match) continue;
+      const candidate = new URL(match[1].replace(/&amp;/g, '&'), wikiUrl);
+      if (candidate.protocol === 'https:' && /^(?:static\\.wikia\\.nocookie\\.net|images\\.fandom\\.com)$/i.test(candidate.hostname)) {
+        imageUrl = candidate.toString();
+        break;
+      }
+    }
+  } catch {
+    imageUrl = null;
+  }
+  characterWikiImageCache.set(wikiUrl, imageUrl);
+  return imageUrl;
+}
+
 function lobbyPayload(session) {
   const players = [...session.players.values()];
   const playerList = players.length
@@ -260,7 +297,8 @@ async function runGame(session) {
     const revealEmbed = new EmbedBuilder()
       .setColor(0x2ECC71)
       .setTitle('The character was ' + character.name + '.');
-    if (character.imageUrl) revealEmbed.setImage(character.imageUrl);
+    const revealImageUrl = await getCharacterRevealImage(character);
+    if (revealImageUrl) revealEmbed.setImage(revealImageUrl);
     await session.channel.send({
       embeds: [revealEmbed],
       allowedMentions: { parse: [] },
