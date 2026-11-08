@@ -375,7 +375,7 @@ export default {
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith('game:host:')) {
       const rawScore = interaction.fields.getTextInputValue('winning_score').trim();
-      if (!/^\\d+$/.test(rawScore) || Number(rawScore) < 1 || Number(rawScore) > 1000) {
+      if (!/^\d+$/.test(rawScore) || Number(rawScore) < 1 || Number(rawScore) > 1000) {
         return interaction.reply({ content: 'Winning score must be a whole number from 1 to 1,000.', flags: MessageFlags.Ephemeral });
       }
       if (hasActiveChannelSession(interaction.guildId, interaction.channelId)) {
