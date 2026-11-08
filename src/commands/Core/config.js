@@ -285,6 +285,7 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesCategor
       ['settings', 'Settings'],
       ['roles', 'Roles'],
       ['channels', 'Channels'],
+      ['logs', 'Logs'],
       ['messages', 'Messages'],
     ].map(([value, label]) => new ButtonBuilder()
       .setCustomId(`jconfig:page:${value}`)
@@ -327,6 +328,18 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesCategor
         { label: 'Remove roles', value: 'remove_roles', description: 'Unassign or delete configured roles' },
       );
     controls = [new ActionRowBuilder().addComponents(roleMenu)];
+  } else if (page === 'logs') {
+    embed.setDescription('Configure where jail-related command activity and configuration changes are recorded.')
+      .addFields(
+        { name: 'Jail logs channel', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'Not configured', inline: false },
+        { name: 'What gets logged', value: 'Jail and unjail command activity, command errors, and jail configuration changes.', inline: false },
+      );
+    const jailLogsMenu = new StringSelectMenuBuilder().setCustomId('jconfig:jail_logs_action').setPlaceholder('Configure jail logs')
+      .addOptions(
+        { label: 'Choose jail logs channel', value: 'set', description: 'Select the channel where jail logs are posted' },
+        { label: 'Disable jail logs', value: 'disable', description: 'Stop posting jail logs to a channel' },
+      );
+    controls = [new ActionRowBuilder().addComponents(jailLogsMenu)];
   } else if (page === 'channels') {
     const roleChannelCount = (Array.isArray(jail.roles) ? jail.roles : []).filter(item => item?.roleId && item?.channelId).length;
     embed.setDescription('All jail channel and category settings are managed here, separately from role settings.')
@@ -334,7 +347,6 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesCategor
         { name: 'Default jail channel', value: jail.channelId ? `<#${jail.channelId}>` : 'None configured', inline: true },
         { name: 'Jail category', value: jail.categoryId ? `<#${jail.categoryId}>` : 'None configured', inline: true },
         { name: 'Evidence forum', value: jail.evidenceForumId ? `<#${jail.evidenceForumId}>` : 'None configured', inline: true },
-        { name: 'Jail configuration logs', value: jail.logsChannelId ? `<#${jail.logsChannelId}>` : 'None configured', inline: true },
         { name: 'Announcement channel', value: jail.actionLogChannelId ? `<#${jail.actionLogChannelId}>` : 'None configured', inline: true },
         { name: 'Role-specific jail channels', value: roleChannelCount ? `${roleChannelCount} role-specific channel assignment(s). Use the paginated role selector to browse or search all jail roles.` : 'No role-specific jail channels configured', inline: false },
       );
@@ -343,7 +355,6 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesCategor
         { label: 'Default jail channel', value: 'default_jail', description: 'Choose the default channel for jailed members' },
         { label: 'Jail category', value: 'category', description: 'Choose the category for jail channels' },
         { label: 'Evidence forum', value: 'evidence_forum', description: 'Choose where jail evidence is stored' },
-        { label: 'Jail configuration logs', value: 'logs', description: 'Choose where jail configuration saves are logged' },
         { label: 'Announcement channel', value: 'announcement', description: 'Choose where jail and unjail announcements are posted' },
         { label: 'Role-specific jail channel', value: 'role_channel', description: 'Assign a channel to a specific jail role' },
       );
@@ -825,6 +836,22 @@ export default {
       }
     }
 
+    if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:jail_logs_action') {
+      const action = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const jail = { ...(current?.jail ?? {}) };
+      if (action === 'disable') {
+        jail.logsChannelId = null;
+        await updateGuildConfig(client, interaction.guildId, { jail });
+        return interaction.editReply(panelPayload({ ...(current ?? {}), jail }, 'jail', 'logs'));
+      }
+      if (action !== 'set') return interaction.editReply({ content: 'Invalid jail logs setting.', embeds: [], components: [] });
+      const channels = await getSelectableChannels(interaction.guild, ChannelType.GuildText);
+      if (!channels.length) return interaction.editReply({ content: 'No text channels were found in this server.', embeds: [], components: [] });
+      const picker = buildPaginatedChannelPicker('logsChannelId', 0, channels);
+      return interaction.editReply({ content: picker.content, embeds: [], components: [new ActionRowBuilder().addComponents(picker.menu)] });
+    }
     if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:log_action') {
       const action = interaction.values[0];
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
@@ -949,12 +976,11 @@ export default {
         default_jail: { key: 'channelId', label: 'Default jail channel', type: ChannelType.GuildText },
         category: { key: 'categoryId', label: 'Jail category', type: ChannelType.GuildCategory },
         evidence_forum: { key: 'evidenceForumId', label: 'Evidence forum', type: ChannelType.GuildForum },
-        logs: { key: 'logsChannelId', label: 'Jail configuration logs channel', type: ChannelType.GuildText },
         announcement: { key: 'actionLogChannelId', label: 'Announcement channel', type: ChannelType.GuildText },
       };
       const setting = settings[action];
       if (!setting) return false;
-      if (['default_jail', 'category', 'evidence_forum', 'announcement', 'logs'].includes(action)) {
+      if (['default_jail', 'category', 'evidence_forum', 'announcement'].includes(action)) {
         const channels = await getSelectableChannels(interaction.guild, setting.type);
         if (!channels.length) {
           const emptyLabels = {
@@ -962,7 +988,6 @@ export default {
             category: 'categories',
             evidence_forum: 'forum channels',
             announcement: 'text channels',
-            logs: 'text channels',
           };
           return interaction.editReply({
             content: `No ${emptyLabels[action]} were found in this server.`,
@@ -1036,7 +1061,7 @@ export default {
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const jail = { ...(current?.jail ?? {}), [key]: interaction.values[0] };
-      const labels = { channelId: 'Default jail channel', categoryId: 'Jail category', evidenceForumId: 'Evidence forum', logsChannelId: 'Logs channel', actionLogChannelId: 'Announcement channel' };
+      const labels = { channelId: 'Default jail channel', categoryId: 'Jail category', evidenceForumId: 'Evidence forum', logsChannelId: 'Jail logs channel', actionLogChannelId: 'Announcement channel' };
       await updateGuildConfig(client, interaction.guildId, { jail });
       await logConfigSave(interaction, jail, labels[key] || 'Channel setting', `**Channel:** <#${interaction.values[0]}>`);
       return interaction.editReply({ content: `Saved ${labels[key] || 'channel'}: <#${interaction.values[0]}>.`, embeds: [], components: [] });
