@@ -190,11 +190,17 @@ async function runGame(session) {
 
       const hints = Array.isArray(character.hints) ? character.hints : [];
       const hint = hints[Math.min(hintIndex, Math.max(0, hints.length - 1))] || 'No hint configured.';
-      await session.channel.send({
-        content:
-          '**SAY YOUR ANSWER NOW!** You have **15 seconds** to send one answer in this channel.\n' +
+      const promptEmbed = new EmbedBuilder()
+        .setColor(0x5865F2)
+        .setTitle('Character ' + (characterIndex + 1) + '/' + characters.length)
+        .setDescription(
           '**Hint ' + (hintIndex + 1) + ':** ' + hint + '\n' +
-          'Only the first message from each joined player during this answer window counts.',
+          'Only the first message from each joined player during this answer window counts.'
+        );
+      if (character.imageUrl) promptEmbed.setImage(character.imageUrl);
+      await session.channel.send({
+        content: '**SAY YOUR ANSWER NOW!** You have **15 seconds** to send one answer in this channel.',
+        embeds: [promptEmbed],
         allowedMentions: { parse: [] },
       });
 
@@ -344,6 +350,7 @@ export default {
         characters: game.characters.map(character => ({
           name: String(character.name),
           hints: Array.isArray(character.hints) ? character.hints.map(String) : [],
+          imageUrl: typeof character.imageUrl === 'string' ? character.imageUrl : null,
         })),
         players: new Map([[interaction.user.id, {
           id: interaction.user.id,
