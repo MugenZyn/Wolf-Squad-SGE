@@ -95,7 +95,7 @@ function buildSessionPayload(session, resultMessage = '') {
         '**Game:** ' + session.game.name,
         '**Correct guesses:** ' + session.score + '/' + session.totalCharacters,
       ].filter(Boolean).join('\n\n'));
-    return { embeds: [embed], components: [], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+    return { embeds: [embed], components: [], allowedMentions: { parse: [] } };
   }
 
   const character = session.currentCharacter;
@@ -124,7 +124,7 @@ function buildSessionPayload(session, resultMessage = '') {
       .setLabel('Reveal & skip')
       .setStyle(ButtonStyle.Secondary),
   );
-  return { embeds: [embed], components: [controls], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } };
+  return { embeds: [embed], components: [controls], allowedMentions: { parse: [] } };
 }
 
 function getSession(interaction, token) {
