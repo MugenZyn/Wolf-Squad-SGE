@@ -146,7 +146,7 @@ function gamesPanelPayload(config, categoryNav, gameId = null) {
       { name: 'Configured characters', value: characters.length
         ? characters.slice(0, 12).map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.hints?.length ?? 0) + ' hint(s)').join('\n').slice(0, 1000) + (characters.length > 12 ? '\n…and ' + (characters.length - 12) + ' more' : '')
         : 'No characters configured. Add characters and hints before players can use this game.', inline: false },
-      { name: 'Character format', value: 'One character per line: Character name | hint 1, hint 2, hint 3. Use up to 5 comma-separated hints.', inline: false },
+      { name: 'Character format', value: 'One character per line: Character name | hint 1, hint 2 | optional direct image URL. Use up to 5 comma-separated hints.', inline: false },
     );
   const actions = new StringSelectMenuBuilder()
     .setCustomId('jconfig:games_game_action:' + game.id)
@@ -706,8 +706,8 @@ export default {
       const action = interaction.values[0];
       if (action === 'edit_characters') {
         const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + gameId).setTitle('Edit characters and hints');
-        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('Name | hints (comma-separated)').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
-        input.setPlaceholder('Ichigo Kurosaki | substitute soul reaper, uses Zangetsu');
+        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('Name | hints | optional image URL').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
+        input.setPlaceholder('Ichigo Kurosaki | substitute soul reaper, uses Zangetsu | https://example.com/ichigo.png');
         modal.addComponents(new ActionRowBuilder().addComponents(input));
         return interaction.showModal(modal);
       }
@@ -1464,14 +1464,26 @@ export default {
           for (const row of rows) {
             const values = row.split('|').map(value => value.trim());
             const characterName = values.shift();
-            const hints = values.join(',').split(',').map(value => value.trim()).filter(Boolean);
-            if (!characterName || characterName.length > 80 || hints.length < 1 || hints.length > 5 || hints.some(hint => hint.length > 250)) {
-              return interaction.editReply({ content: 'Each line must contain a character name, then |, then 1–5 hints separated by commas. Names must be 1–80 characters and hints must be 250 characters or fewer.' });
+            let imageUrl = '';
+            const possibleImageUrl = values.at(-1) ?? '';
+            if (/^[a-z][a-z0-9+.-]*:\/\//i.test(possibleImageUrl)) {
+              values.pop();
+              try {
+                const parsedUrl = new URL(possibleImageUrl);
+                if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Unsupported image URL protocol');
+                imageUrl = parsedUrl.toString();
+              } catch {
+                return interaction.editReply({ content: 'The image URL for **' + characterName + '** must be a valid HTTP or HTTPS direct image URL.' });
+              }
+            }
+            const hints = values.join('|').split(',').map(value => value.trim()).filter(Boolean);
+            if (!characterName || characterName.length > 80 || hints.length < 1 || hints.length > 5 || hints.some(hint => hint.length > 250) || imageUrl.length > 1000) {
+              return interaction.editReply({ content: 'Each line must contain a character name, then |, then 1–5 comma-separated hints, with an optional image URL after another |. Names must be 1–80 characters and hints must be 250 characters or fewer.' });
             }
             const key = characterName.toLowerCase();
             if (seen.has(key)) return interaction.editReply({ content: 'Character names must be unique within a guessing game. Duplicate found: ' + characterName });
             seen.add(key);
-            parsed.push({ name: characterName, hints });
+            parsed.push({ name: characterName, hints, ...(imageUrl ? { imageUrl } : {}) });
           }
           game.characters = parsed;
         }
