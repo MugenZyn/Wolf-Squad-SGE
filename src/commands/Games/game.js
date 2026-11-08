@@ -267,8 +267,7 @@ async function runGame(session) {
     .setColor(0x2ECC71)
     .setTitle('Guessing game finished!')
     .setDescription(
-      '**Category:** ' + session.category.name +
-      '\n**Game:** ' + session.game.name +
+      '**Game:** ' + session.game.name +
       '\n\n' + (finalStandings.join('\n') || 'No final scores.')
     );
   await session.channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
