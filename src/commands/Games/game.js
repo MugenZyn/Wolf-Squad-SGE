@@ -47,38 +47,28 @@ function makeTypeMenu() {
   );
 }
 
-function makeCategoryMenu(categories) {
-  return new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId('game:category')
-      .setPlaceholder('Choose a guessing category')
-      .addOptions(categories.slice(0, 25).map(category => ({
-        label: String(category.name).slice(0, 100),
-        value: String(category.id),
-        description: (String((category.games ?? []).length) + ' guessing game(s)').slice(0, 100),
-      }))),
-  );
-}
-
-function makeGuessingGameMenu(category) {
+function makeGuessingGameMenu(games) {
   return {
-    content: '**' + category.name + '** — choose a guessing game to host.',
+    content: 'Choose a guessing game to host.',
     components: [
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId('game:select:' + category.id)
+          .setCustomId('game:select')
           .setPlaceholder('Choose a guessing game')
-          .addOptions((category.games ?? [])
-            .filter(game => Array.isArray(game.characters) && game.characters.length)
-            .slice(0, 25)
-            .map(game => ({
-              label: String(game.name).slice(0, 100),
-              value: String(game.id),
-              description: (game.characters.length + ' characters · ' + game.lives + ' lives · ' + game.tries + ' tries each').slice(0, 100),
-            }))),
+          .addOptions(games.slice(0, 25).map(game => ({
+            label: String(game.name).slice(0, 100),
+            value: String(game.id),
+            description: (game.characters.length + ' characters · ' + game.lives + ' lives · ' + game.tries + ' tries each').slice(0, 100),
+          }))),
       ),
     ],
   };
+}
+
+function getConfiguredGuessingGames(gamesConfig = {}) {
+  if (Array.isArray(gamesConfig.guessingGames)) return gamesConfig.guessingGames;
+  return (Array.isArray(gamesConfig.guessingCategories) ? gamesConfig.guessingCategories : [])
+    .flatMap(category => (category.games ?? []).map(game => ({ ...game })));
 }
 
 function lobbyPayload(session) {
@@ -90,8 +80,7 @@ function lobbyPayload(session) {
     .setColor(0x5865F2)
     .setTitle('Guessing game lobby')
     .setDescription(
-      '**Category:** ' + session.category.name +
-      '\n**Game:** ' + session.game.name +
+      '**Game:** ' + session.game.name +
       '\n**Hosted by:** <@' + session.hostId + '>' +
       '\n\n' + playerList +
       (session.status === 'lobby' ? '\n\nPlayers can join below. The host starts the game when everyone is ready.' :
@@ -296,14 +285,10 @@ export default {
     if (!interaction.inGuild() || !interaction.guild) {
       return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
     }
-    const categories = (Array.isArray(guildConfig?.games?.guessingCategories)
-      ? guildConfig.games.guessingCategories
-      : [])
-      .filter(category => Array.isArray(category.games) && category.games.some(game =>
-        Array.isArray(game.characters) && game.characters.length > 0
-      ));
+    const guessingGames = getConfiguredGuessingGames(guildConfig?.games ?? {})
+      .filter(game => Array.isArray(game.characters) && game.characters.length > 0);
 
-    if (!categories.length) {
+    if (!guessingGames.length) {
       return interaction.reply({
         content: 'No guessing games are configured yet. Ask a server administrator to create some under /config → Games.',
         flags: MessageFlags.Ephemeral,
@@ -326,40 +311,19 @@ export default {
       }
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const config = await getGuildConfig(client, interaction.guildId);
-      const categories = (config?.games?.guessingCategories ?? []).filter(category =>
-        Array.isArray(category.games) && category.games.some(game => Array.isArray(game.characters) && game.characters.length)
-      );
-      if (!categories.length) {
-        return interaction.update({ content: 'No playable guessing categories are configured yet.', components: [], embeds: [] });
+      const guessingGames = getConfiguredGuessingGames(config?.games ?? {})
+        .filter(game => Array.isArray(game.characters) && game.characters.length);
+      if (!guessingGames.length) {
+        return interaction.update({ content: 'No playable guessing games are configured yet.', components: [], embeds: [] });
       }
-      return interaction.update({
-        content: 'Choose a guessing category.',
-        components: [makeCategoryMenu(categories)],
-        embeds: [],
-      });
+      return interaction.update(makeGuessingGameMenu(guessingGames));
     }
 
-    if (interaction.isStringSelectMenu() && interaction.customId === 'game:category') {
+    if (interaction.isStringSelectMenu() && interaction.customId === 'game:select') {
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const config = await getGuildConfig(client, interaction.guildId);
-      const category = (config?.games?.guessingCategories ?? []).find(item => item.id === interaction.values[0]);
-      if (!category) {
-        return interaction.update({ content: 'That category is no longer available. Run /game again.', components: [], embeds: [] });
-      }
-      const games = (category.games ?? []).filter(game => Array.isArray(game.characters) && game.characters.length);
-      if (!games.length) {
-        return interaction.update({ content: 'There are no playable guessing games in that category yet.', components: [], embeds: [] });
-      }
-      return interaction.update(makeGuessingGameMenu({ ...category, games }));
-    }
-
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('game:select:')) {
-      const categoryId = interaction.customId.slice('game:select:'.length);
-      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
-      const config = await getGuildConfig(client, interaction.guildId);
-      const category = (config?.games?.guessingCategories ?? []).find(item => item.id === categoryId);
-      const game = category?.games?.find(item => item.id === interaction.values[0]);
-      if (!category || !game || !Array.isArray(game.characters) || !game.characters.length) {
+      const game = getConfiguredGuessingGames(config?.games ?? {}).find(item => item.id === interaction.values[0]);
+      if (!game || !Array.isArray(game.characters) || !game.characters.length) {
         return interaction.update({ content: 'That guessing game is no longer available or has no characters configured. Run /game again.', components: [], embeds: [] });
       }
       if (!interaction.channel?.isTextBased?.() || typeof interaction.channel.send !== 'function') {
@@ -372,7 +336,6 @@ export default {
         hostId: interaction.user.id,
         channel: interaction.channel,
         status: 'lobby',
-        category: { id: category.id, name: category.name },
         game: {
           id: game.id,
           name: game.name,
