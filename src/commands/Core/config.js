@@ -200,7 +200,7 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesCategor
     ...[
       ['jail', 'Jail'],
       ['sound', 'Jail Sound'],
-      ['logs', 'Logs'],
+      ['logs', 'Member Logs'],
       ['twitch', 'Twitch'],
       ['games', 'Games'],
     ].map(([value, label]) => new ButtonBuilder()
