@@ -19,7 +19,7 @@ const SESSION_TTL_MS = 30 * 60 * 1000;
 function normalizeAnswer(value) {
   return String(value ?? '')
     .normalize('NFKD')
-    .replace(/\\p{Diacritic}/gu, '')
+    .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
