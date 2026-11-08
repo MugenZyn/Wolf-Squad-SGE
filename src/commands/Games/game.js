@@ -19,10 +19,9 @@ function normalizeAnswer(value) {
     .normalize('NFKD')
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
-    // Ignore punctuation and repeated/extra spacing when comparing names.
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .replace(/\s+/gu, ' ')
-    .trim();
+    // Compare the actual letters and numbers only. Case, spaces, punctuation,
+    // hyphens, and apostrophes should not make an otherwise correct name fail.
+    .replace(/[^\p{L}\p{N}]/gu, '');
 }
 
 function shuffle(items) {
