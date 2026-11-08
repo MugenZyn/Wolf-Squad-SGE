@@ -805,6 +805,17 @@ export default {
       const categoryId = parts[2];
       const gameId = parts[3];
       const action = interaction.values[0];
+      // Show the character editor immediately. Modal submissions have a strict
+      // Discord acknowledgement deadline, so do not wait for a Neon lookup here.
+      // The submit handler validates the category and game IDs before saving.
+      if (action === 'edit_characters') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + categoryId + ':' + gameId).setTitle('Edit characters and hints');
+        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('One character per line: Name | Hint 1 | Hint 2').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
+        input.setPlaceholder('Ichigo Kurosaki | Substitute Soul Reaper | Uses Zangetsu');
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+      }
+
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       const category = (current?.games?.guessingCategories ?? []).find(item => item.id === categoryId);
@@ -816,15 +827,6 @@ export default {
         const tries = new TextInputBuilder().setCustomId('tries').setLabel('Tries per character (1–10)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2).setValue(String(game.tries ?? 3));
         const lives = new TextInputBuilder().setCustomId('lives').setLabel('Lives (1–10)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2).setValue(String(game.lives ?? 3));
         modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(tries), new ActionRowBuilder().addComponents(lives));
-        return interaction.showModal(modal);
-      }
-      if (action === 'edit_characters') {
-        const value = (game.characters ?? []).map(character => [character.name, ...(character.hints ?? [])].join(' | ')).join('\n').slice(0, 4000);
-        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + categoryId + ':' + gameId).setTitle('Edit characters and hints');
-        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('One character per line: Name | Hint 1 | Hint 2').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
-        if (value) input.setValue(value);
-        input.setPlaceholder('Ichigo Kurosaki | Substitute Soul Reaper | Uses Zangetsu');
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
         return interaction.showModal(modal);
       }
       if (action === 'delete_game') {
