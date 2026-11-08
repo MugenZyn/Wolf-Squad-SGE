@@ -5,16 +5,14 @@ import {
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
-  ModalBuilder,
   SlashCommandBuilder,
   StringSelectMenuBuilder,
-  TextInputBuilder,
-  TextInputStyle,
 } from 'discord.js';
 
 const activeSessions = new Map();
-const activeUserSessions = new Map();
-const SESSION_TTL_MS = 30 * 60 * 1000;
+const LOBBY_TTL_MS = 3 * 60 * 1000;
+const COUNTDOWN_SECONDS = 5;
+const ANSWER_WINDOW_MS = 15 * 1000;
 
 function normalizeAnswer(value) {
   return String(value ?? '')
@@ -34,11 +32,26 @@ function shuffle(items) {
   return result;
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function makeTypeMenu() {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('game:type')
+      .setPlaceholder('Choose what type of game to play')
+      .addOptions([
+        { label: 'Guess', value: 'guess', description: 'Guess characters using hints and timed answer rounds' },
+      ]),
+  );
+}
+
 function makeCategoryMenu(categories) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId('game:category')
-      .setPlaceholder('Choose a game category')
+      .setPlaceholder('Choose a guessing category')
       .addOptions(categories.slice(0, 25).map(category => ({
         label: String(category.name).slice(0, 100),
         value: String(category.id),
@@ -49,119 +62,233 @@ function makeCategoryMenu(categories) {
 
 function makeGuessingGameMenu(category) {
   return {
-    content: '**' + category.name + '** — choose a guessing game to play.',
+    content: '**' + category.name + '** — choose a guessing game to host.',
     components: [
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('game:select:' + category.id)
           .setPlaceholder('Choose a guessing game')
-          .addOptions((category.games ?? []).filter(game => Array.isArray(game.characters) && game.characters.length).slice(0, 25).map(game => ({
-            label: String(game.name).slice(0, 100),
-            value: String(game.id),
-            description: (game.characters.length + ' characters · ' + game.lives + ' lives · ' + game.tries + ' tries each').slice(0, 100),
-          }))),
+          .addOptions((category.games ?? [])
+            .filter(game => Array.isArray(game.characters) && game.characters.length)
+            .slice(0, 25)
+            .map(game => ({
+              label: String(game.name).slice(0, 100),
+              value: String(game.id),
+              description: (game.characters.length + ' characters · ' + game.lives + ' lives · ' + game.tries + ' tries each').slice(0, 100),
+            }))),
       ),
     ],
   };
 }
 
-function nextCharacter(session) {
-  if (session.livesRemaining <= 0) {
-    session.finished = 'lives';
-    session.currentCharacter = null;
-    return;
-  }
-  const next = session.remainingCharacters.shift();
-  if (!next) {
-    session.finished = 'complete';
-    session.currentCharacter = null;
-    return;
-  }
-  session.currentCharacter = next;
-  session.triesRemaining = session.game.tries;
-  session.hintIndex = 0;
-}
-
-function buildSessionPayload(session, resultMessage = '') {
-  if (session.finished) {
-    const completed = session.finished === 'complete';
-    const embed = new EmbedBuilder()
-      .setColor(completed ? 0x2ECC71 : 0xE74C3C)
-      .setTitle(completed ? 'Guessing game completed!' : 'Game over!')
-      .setDescription([
-        resultMessage,
-        completed ? 'You reached the end of the character list.' : 'You ran out of lives.',
-        '**Category:** ' + session.category.name,
-        '**Game:** ' + session.game.name,
-        '**Correct guesses:** ' + session.score + '/' + session.totalCharacters,
-      ].filter(Boolean).join('\n\n'));
-    return { embeds: [embed], components: [], allowedMentions: { parse: [] } };
-  }
-
-  const character = session.currentCharacter;
-  const hints = Array.isArray(character.hints) ? character.hints : [];
-  const currentHint = hints[Math.min(session.hintIndex, Math.max(0, hints.length - 1))] || 'No hint configured.';
+function lobbyPayload(session) {
+  const players = [...session.players.values()];
+  const playerList = players.length
+    ? players.map(player => '<@' + player.id + '>').join(', ').slice(0, 900)
+    : 'No players yet.';
   const embed = new EmbedBuilder()
     .setColor(0x5865F2)
-    .setTitle(session.category.name + ' · ' + session.game.name)
-    .setDescription([
-      resultMessage,
-      '**Lives:** ' + session.livesRemaining + '  ·  **Tries left:** ' + session.triesRemaining,
-      '**Correct guesses:** ' + session.score + '/' + session.totalCharacters,
-      '',
-      '**Hint ' + (session.hintIndex + 1) + ':** ' + currentHint,
-      '',
-      'Press **Guess** to submit your answer. Each incorrect guess uses one try and reveals the next hint.',
-      'If you use all your tries, the character is revealed and you lose one life.',
-    ].filter(Boolean).join('\n'));
-  const controls = new ActionRowBuilder().addComponents(
+    .setTitle('Guessing game lobby')
+    .setDescription(
+      '**Category:** ' + session.category.name +
+      '\n**Game:** ' + session.game.name +
+      '\n**Hosted by:** <@' + session.hostId + '>' +
+      '\n\n' + playerList +
+      '\n\nPlayers can join below. The host starts the game when everyone is ready.'
+    )
+    .addFields(
+      { name: 'Players', value: String(players.length), inline: true },
+      { name: 'Lives per player', value: String(session.game.lives), inline: true },
+      { name: 'Tries per character', value: String(session.game.tries), inline: true },
+    );
+  const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('game:guess:' + session.token)
-      .setLabel('Guess')
-      .setStyle(ButtonStyle.Primary),
+      .setCustomId('game:join:' + session.token)
+      .setLabel('Join game')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(session.status !== 'lobby'),
     new ButtonBuilder()
-      .setCustomId('game:skip:' + session.token)
-      .setLabel('Reveal & skip')
-      .setStyle(ButtonStyle.Secondary),
+      .setCustomId('game:start:' + session.token)
+      .setLabel('Start game')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(session.status !== 'lobby' || players.length === 0),
   );
-  return { embeds: [embed], components: [controls], allowedMentions: { parse: [] } };
+  return { embeds: [embed], components: session.status === 'lobby' ? [row] : [], allowedMentions: { parse: [] } };
+}
+
+function getSession(token, guildId) {
+  const session = activeSessions.get(token);
+  if (!session || session.guildId !== guildId) return null;
+  return session;
 }
 
 function removeSession(session) {
   if (!session) return;
   activeSessions.delete(session.token);
-  if (activeUserSessions.get(session.userKey) === session.token) {
-    activeUserSessions.delete(session.userKey);
-  }
-  if (session.expiryTimer) clearTimeout(session.expiryTimer);
+  if (session.lobbyTimer) clearTimeout(session.lobbyTimer);
 }
 
-function getSession(interaction, token) {
-  const session = activeSessions.get(token);
-  if (!session || session.guildId !== interaction.guildId || session.userId !== interaction.user.id) return null;
-  if (Date.now() - session.createdAt > SESSION_TTL_MS) {
-    removeSession(session);
-    return null;
-  }
-  return session;
+async function collectAnswers(session, activePlayerIds) {
+  const answers = new Map();
+  const activeIds = new Set(activePlayerIds);
+  await new Promise(resolve => {
+    const collector = session.channel.createMessageCollector({
+      time: ANSWER_WINDOW_MS,
+      filter: message => !message.author.bot && activeIds.has(message.author.id),
+    });
+    collector.on('collect', message => {
+      if (answers.has(message.author.id)) return;
+      answers.set(message.author.id, message.content.trim());
+      if (answers.size >= activeIds.size) collector.stop('all_answered');
+    });
+    collector.on('end', resolve);
+  });
+  return answers;
 }
 
-function finishOrAdvance(session, resultMessage) {
-  nextCharacter(session);
-  if (session.finished) removeSession(session);
-  return buildSessionPayload(session, resultMessage);
+async function runGame(session) {
+  const characters = shuffle(session.characters);
+  session.status = 'playing';
+  if (session.lobbyTimer) clearTimeout(session.lobbyTimer);
+  await session.lobbyMessage.edit(lobbyPayload(session)).catch(() => null);
+
+  await session.channel.send({
+    content: 'The game is starting! There are ' + session.players.size + ' player(s). Only joined players can submit answers.',
+    allowedMentions: { parse: [] },
+  });
+
+  for (let characterIndex = 0; characterIndex < characters.length; characterIndex += 1) {
+    const character = characters[characterIndex];
+    const playerStates = new Map();
+    for (const player of session.players.values()) {
+      if (player.lives > 0) {
+        playerStates.set(player.id, {
+          tries: session.game.tries,
+          solved: false,
+          eliminated: false,
+        });
+      }
+    }
+
+    if (![...playerStates.keys()].length) break;
+
+    let hintIndex = 0;
+    let characterFinished = false;
+    while (!characterFinished) {
+      const activeIds = [...playerStates.entries()]
+        .filter(([id, state]) => {
+          const player = session.players.get(id);
+          return player && player.lives > 0 && !state.solved && !state.eliminated && state.tries > 0;
+        })
+        .map(([id]) => id);
+
+      if (!activeIds.length) break;
+
+      await session.channel.send({
+        content:
+          '**Character ' + (characterIndex + 1) + '/' + characters.length + '**\n' +
+          'Next answer window opens in **' + COUNTDOWN_SECONDS + ' seconds**. Wait for the "SAY YOUR ANSWER NOW" message before sending your answer.',
+        allowedMentions: { parse: [] },
+      });
+      await sleep(COUNTDOWN_SECONDS * 1000);
+
+      const hints = Array.isArray(character.hints) ? character.hints : [];
+      const hint = hints[Math.min(hintIndex, Math.max(0, hints.length - 1))] || 'No hint configured.';
+      await session.channel.send({
+        content:
+          '**SAY YOUR ANSWER NOW!** You have **15 seconds** to send one answer in this channel.\n' +
+          '**Hint ' + (hintIndex + 1) + ':** ' + hint + '\n' +
+          'Only the first message from each joined player during this answer window counts.',
+        allowedMentions: { parse: [] },
+      });
+
+      const answers = await collectAnswers(session, activeIds);
+      const correctPlayers = [];
+      const missedPlayers = [];
+      const failedPlayers = [];
+
+      for (const id of activeIds) {
+        const state = playerStates.get(id);
+        const player = session.players.get(id);
+        if (!state || !player || state.solved || state.eliminated) continue;
+
+        const answer = answers.get(id);
+        if (answer && normalizeAnswer(answer) === normalizeAnswer(character.name)) {
+          state.solved = true;
+          player.score += 1;
+          correctPlayers.push(id);
+        } else {
+          state.tries -= 1;
+          if (!answer) missedPlayers.push(id);
+          if (state.tries <= 0) {
+            state.eliminated = true;
+            player.lives = Math.max(0, player.lives - 1);
+            failedPlayers.push(id);
+          }
+        }
+      }
+
+      const resultLines = [];
+      if (correctPlayers.length) resultLines.push('Correct: ' + correctPlayers.map(id => '<@' + id + '>').join(', '));
+      if (missedPlayers.length) resultLines.push('No answer received: ' + missedPlayers.map(id => '<@' + id + '>').join(', '));
+      if (failedPlayers.length) {
+        resultLines.push('Out of tries — lost one life: ' + failedPlayers.map(id => {
+          const player = session.players.get(id);
+          return '<@' + id + '> (' + player.lives + ' life/lives left)';
+        }).join(', '));
+      }
+      const stillTrying = [...playerStates.values()].some(state => !state.solved && !state.eliminated && state.tries > 0);
+      if (resultLines.length) {
+        await session.channel.send({ content: resultLines.join('\n'), allowedMentions: { parse: [] } });
+      }
+      if (stillTrying) hintIndex += 1;
+      else characterFinished = true;
+    }
+
+    await session.channel.send({
+      content: '**The character was ' + character.name + '.**',
+      allowedMentions: { parse: [] },
+    });
+
+    const standings = [...session.players.values()].map(player =>
+      '<@' + player.id + '>: ' + player.score + ' correct · ' + player.lives + ' lives'
+    );
+    await session.channel.send({
+      content: '**Current standings**\n' + standings.join('\n'),
+      allowedMentions: { parse: [] },
+    });
+
+    if (![...session.players.values()].some(player => player.lives > 0)) break;
+  }
+
+  session.status = 'finished';
+  const finalStandings = [...session.players.values()]
+    .sort((a, b) => b.score - a.score)
+    .map((player, index) =>
+      (index + 1) + '. <@' + player.id + '> — **' + player.score + '** correct guess(es), ' + player.lives + ' life/lives remaining'
+    );
+  const embed = new EmbedBuilder()
+    .setColor(0x2ECC71)
+    .setTitle('Guessing game finished!')
+    .setDescription(
+      '**Category:** ' + session.category.name +
+      '\n**Game:** ' + session.game.name +
+      '\n\n' + (finalStandings.join('\n') || 'No final scores.')
+    );
+  await session.channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+  await session.lobbyMessage.edit(lobbyPayload(session)).catch(() => null);
+  removeSession(session);
 }
 
 export default {
   data: new SlashCommandBuilder()
     .setName('game')
-    .setDescription('Choose a configured guessing game to play.'),
+    .setDescription('Choose a game type and host a configured game.'),
 
   async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) {
       return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
     }
-
     const categories = (Array.isArray(guildConfig?.games?.guessingCategories)
       ? guildConfig.games.guessingCategories
       : [])
@@ -177,14 +304,33 @@ export default {
     }
 
     return interaction.reply({
-      content: 'Choose a category to browse its guessing games.',
-      components: [makeCategoryMenu(categories)],
+      content: 'First, choose what type of game you want to play.',
+      components: [makeTypeMenu()],
       flags: MessageFlags.Ephemeral,
     });
   },
 
   async handleComponent(interaction, client) {
     if (!interaction.customId?.startsWith('game:')) return false;
+
+    if (interaction.isStringSelectMenu() && interaction.customId === 'game:type') {
+      if (interaction.values[0] !== 'guess') {
+        return interaction.update({ content: 'That game type is not available.', components: [], embeds: [] });
+      }
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const config = await getGuildConfig(client, interaction.guildId);
+      const categories = (config?.games?.guessingCategories ?? []).filter(category =>
+        Array.isArray(category.games) && category.games.some(game => Array.isArray(game.characters) && game.characters.length)
+      );
+      if (!categories.length) {
+        return interaction.update({ content: 'No playable guessing categories are configured yet.', components: [], embeds: [] });
+      }
+      return interaction.update({
+        content: 'Choose a guessing category.',
+        components: [makeCategoryMenu(categories)],
+        embeds: [],
+      });
+    }
 
     if (interaction.isStringSelectMenu() && interaction.customId === 'game:category') {
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
@@ -209,17 +355,16 @@ export default {
       if (!category || !game || !Array.isArray(game.characters) || !game.characters.length) {
         return interaction.update({ content: 'That guessing game is no longer available or has no characters configured. Run /game again.', components: [], embeds: [] });
       }
-
-      const userKey = interaction.guildId + ':' + interaction.user.id;
-      const previousToken = activeUserSessions.get(userKey);
-      if (previousToken) removeSession(activeSessions.get(previousToken));
+      if (!interaction.channel?.isTextBased?.() || typeof interaction.channel.send !== 'function') {
+        return interaction.update({ content: 'I cannot create a public game lobby in this channel. Try again in a text channel.', components: [], embeds: [] });
+      }
 
       const session = {
         token: randomUUID().replace(/-/g, '').slice(0, 12),
-        userKey,
         guildId: interaction.guildId,
-        userId: interaction.user.id,
-        createdAt: Date.now(),
+        hostId: interaction.user.id,
+        channel: interaction.channel,
+        status: 'lobby',
         category: { id: category.id, name: category.name },
         game: {
           id: game.id,
@@ -227,72 +372,70 @@ export default {
           tries: Math.max(1, Math.min(10, Number(game.tries) || 3)),
           lives: Math.max(1, Math.min(10, Number(game.lives) || 3)),
         },
-        remainingCharacters: shuffle(game.characters),
-        currentCharacter: null,
-        triesRemaining: 0,
-        livesRemaining: Math.max(1, Math.min(10, Number(game.lives) || 3)),
-        hintIndex: 0,
-        score: 0,
-        totalCharacters: game.characters.length,
-        finished: null,
+        characters: game.characters.map(character => ({
+          name: String(character.name),
+          hints: Array.isArray(character.hints) ? character.hints.map(String) : [],
+        })),
+        players: new Map([[interaction.user.id, {
+          id: interaction.user.id,
+          score: 0,
+          lives: Math.max(1, Math.min(10, Number(game.lives) || 3)),
+        }]]),
       };
-      nextCharacter(session);
+      const lobbyMessage = await interaction.channel.send(lobbyPayload(session));
+      session.lobbyMessage = lobbyMessage;
       activeSessions.set(session.token, session);
-      activeUserSessions.set(userKey, session.token);
-      session.expiryTimer = setTimeout(() => removeSession(session), SESSION_TTL_MS);
-      session.expiryTimer.unref?.();
-      return interaction.update(buildSessionPayload(session, 'Started! Guess each character before your tries run out.'));
+      session.lobbyTimer = setTimeout(async () => {
+        if (session.status !== 'lobby') return;
+        session.status = 'expired';
+        await session.lobbyMessage.edit({
+          content: 'This game lobby expired because it was not started within 3 minutes.',
+          embeds: [],
+          components: [],
+          allowedMentions: { parse: [] },
+        }).catch(() => null);
+        removeSession(session);
+      }, LOBBY_TTL_MS);
+      session.lobbyTimer.unref?.();
+      return interaction.update({
+        content: 'Your public game lobby is ready: ' + lobbyMessage.url,
+        components: [],
+        embeds: [],
+      });
     }
 
-    if (interaction.isButton() && interaction.customId.startsWith('game:guess:')) {
-      const token = interaction.customId.slice('game:guess:'.length);
-      const session = getSession(interaction, token);
-      if (!session) return interaction.reply({ content: 'This game session expired. Run /game to start another one.', flags: MessageFlags.Ephemeral });
-      const modal = new ModalBuilder()
-        .setCustomId('game:guess_submit:' + token)
-        .setTitle('Guess the character');
-      const input = new TextInputBuilder()
-        .setCustomId('answer')
-        .setLabel('Character name')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)
-        .setMaxLength(100)
-        .setPlaceholder('Enter your guess');
-      modal.addComponents(new ActionRowBuilder().addComponents(input));
-      return interaction.showModal(modal);
-    }
-
-    if (interaction.isButton() && interaction.customId.startsWith('game:skip:')) {
-      const token = interaction.customId.slice('game:skip:'.length);
-      const session = getSession(interaction, token);
-      if (!session) return interaction.reply({ content: 'This game session expired. Run /game to start another one.', flags: MessageFlags.Ephemeral });
-      const revealed = session.currentCharacter.name;
-      session.livesRemaining -= 1;
-      return interaction.update(finishOrAdvance(session, 'The character was **' + revealed + '**. You used Reveal & skip and lost one life.'));
-    }
-
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('game:guess_submit:')) {
-      const token = interaction.customId.slice('game:guess_submit:'.length);
-      const session = getSession(interaction, token);
-      if (!session) return interaction.reply({ content: 'This game session expired. Run /game to start another one.', flags: MessageFlags.Ephemeral });
-      const answer = interaction.fields.getTextInputValue('answer').trim();
-      if (!answer) return interaction.reply({ content: 'Enter a character name before submitting.', flags: MessageFlags.Ephemeral });
-
-      if (normalizeAnswer(answer) === normalizeAnswer(session.currentCharacter.name)) {
-        const revealed = session.currentCharacter.name;
-        session.score += 1;
-        return interaction.update(finishOrAdvance(session, 'Correct! The character was **' + revealed + '**.'));
+    if (interaction.isButton() && interaction.customId.startsWith('game:join:')) {
+      const token = interaction.customId.slice('game:join:'.length);
+      const session = getSession(token, interaction.guildId);
+      if (!session || session.status !== 'lobby') {
+        return interaction.reply({ content: 'That game lobby is no longer accepting players.', flags: MessageFlags.Ephemeral });
       }
-
-      session.triesRemaining -= 1;
-      if (session.triesRemaining > 0) {
-        session.hintIndex = Math.min(session.hintIndex + 1, session.currentCharacter.hints.length - 1);
-        return interaction.update(buildSessionPayload(session, 'Not quite. You have ' + session.triesRemaining + ' try/tries left.'));
+      if (session.players.has(interaction.user.id)) {
+        return interaction.reply({ content: 'You have already joined this game.', flags: MessageFlags.Ephemeral });
       }
+      session.players.set(interaction.user.id, {
+        id: interaction.user.id,
+        score: 0,
+        lives: session.game.lives,
+      });
+      return interaction.update(lobbyPayload(session));
+    }
 
-      const revealed = session.currentCharacter.name;
-      session.livesRemaining -= 1;
-      return interaction.update(finishOrAdvance(session, 'Out of tries! The character was **' + revealed + '**. You lost one life.'));
+    if (interaction.isButton() && interaction.customId.startsWith('game:start:')) {
+      const token = interaction.customId.slice('game:start:'.length);
+      const session = getSession(token, interaction.guildId);
+      if (!session || session.status !== 'lobby') {
+        return interaction.reply({ content: 'That game lobby is no longer available.', flags: MessageFlags.Ephemeral });
+      }
+      if (interaction.user.id !== session.hostId) {
+        return interaction.reply({ content: 'Only the person who created this lobby can start the game.', flags: MessageFlags.Ephemeral });
+      }
+      if (!session.players.size) {
+        return interaction.reply({ content: 'At least one player must join before starting.', flags: MessageFlags.Ephemeral });
+      }
+      await interaction.deferUpdate();
+      await runGame(session);
+      return true;
     }
 
     return false;
