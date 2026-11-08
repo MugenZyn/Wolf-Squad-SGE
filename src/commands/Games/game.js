@@ -274,12 +274,12 @@ async function runGame(session) {
       allowedMentions: { parse: [] },
     });
 
-    if (![...session.players.values()].some(player => player.lives > 0)) break;
     const winners = [...session.players.values()].filter(player => player.score >= session.winningScore);
     if (winners.length) {
       session.winners = winners;
       break;
     }
+    if (![...session.players.values()].some(player => player.lives > 0)) break;
   }
 
   session.status = 'finished';
