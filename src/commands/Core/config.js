@@ -706,7 +706,7 @@ export default {
       const action = interaction.values[0];
       if (action === 'edit_characters') {
         const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + gameId).setTitle('Edit characters and hints');
-        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('One character per line: Name | hints, comma-separated').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
+        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('Name | hints (comma-separated)').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
         input.setPlaceholder('Ichigo Kurosaki | substitute soul reaper, uses Zangetsu');
         modal.addComponents(new ActionRowBuilder().addComponents(input));
         return interaction.showModal(modal);
