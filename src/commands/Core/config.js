@@ -684,7 +684,7 @@ export default {
     const opensModal = (interaction.isStringSelectMenu?.() && (
       interaction.customId === 'jconfig:message_choice' ||
       (interaction.customId === 'jconfig:games_list_action' && ['create_game', 'import_game'].includes(interaction.values?.[0])) ||
-      (interaction.customId?.startsWith('jconfig:games_game_action:') && ['edit_settings', 'edit_characters'].includes(interaction.values?.[0])) ||
+      (interaction.customId?.startsWith('jconfig:games_game_action:') && ['edit_settings', 'edit_characters', 'export_game'].includes(interaction.values?.[0])) ||
       (interaction.customId === 'jconfig:twitch_action' && ['link_streamer', 'unlink_streamer', 'edit_messages'].includes(interaction.values?.[0])) ||
       (interaction.customId?.startsWith('jconfig:') && SETTINGS.some(setting => setting.value === interaction.values?.[0]))
     )) || (interaction.isButton?.() && (
@@ -770,7 +770,8 @@ export default {
       }
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
-      const game = getConfiguredGuessingGames(current?.games ?? {}).find(item => item.id === gameId);      if (action === 'export_game' && game) {
+      const game = getConfiguredGuessingGames(current?.games ?? {}).find(item => item.id === gameId);
+      if (action === 'export_game' && game) {
         const code = encodeGuessingGameCode(game);
         const filename = String(game.name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'guessing-game';
         const file = new AttachmentBuilder(Buffer.from(code, 'utf8'), { name: filename + '-game-code.txt' });
@@ -1488,7 +1489,7 @@ export default {
       delete games.guessingCategories;
       await updateGuildConfig(client, interaction.guildId, { games });
       await logConfigSave(interaction, current?.jail, 'Guessing game imported', '**Game:** ' + imported.name + '\n**Characters:** ' + imported.characters.length);
-      return interaction.editReply({ content: 'Imported **' + imported.name + '** with ' + imported.characters.length + ' character(s).', ...panelPayload({ ...(current ?? {}), games }, 'games', 'settings', gameId) });
+      return interaction.editReply({ ...panelPayload({ ...(current ?? {}), games }, 'games', 'settings', gameId), content: 'Imported **' + imported.name + '** with ' + imported.characters.length + ' character(s).' });
     }
 
     if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:games_')) {
