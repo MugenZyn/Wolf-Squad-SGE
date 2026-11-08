@@ -19,7 +19,9 @@ function normalizeAnswer(value) {
     .normalize('NFKD')
     .replace(/\p{Diacritic}/gu, '')
     .toLowerCase()
+    // Ignore punctuation and repeated/extra spacing when comparing names.
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
     .trim();
 }
 
