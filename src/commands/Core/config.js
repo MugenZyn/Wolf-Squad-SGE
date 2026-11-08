@@ -592,9 +592,14 @@ export default {
       .setName('guessing_game_file')
       .setDescription('Import a .txt or .c4g file exported by Conradd4.')
       .setRequired(false))
+    .addStringOption(option => option
+      .setName('game_name')
+      .setDescription('Optional name to use for the imported game.')
+      .setRequired(false)
+      .setMaxLength(80))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  async execute(interaction, guildConfig) {
+  async execute(interaction, guildConfig, client) {
     if (!interaction.inGuild() || !interaction.guild) {
       return interaction.reply({ content: 'USE THIS COMMAND IN A SERVER.', flags: MessageFlags.Ephemeral });
     }
@@ -623,7 +628,12 @@ export default {
         if (!buffer.length || buffer.length > 8 * 1024 * 1024) {
           return interaction.editReply({ content: 'THE GAME CODE FILE MUST BE NON-EMPTY AND 8 MB OR SMALLER.' });
         }
-        const imported = decodeGuessingGameCode(buffer.toString('utf8'));
+        let imported = decodeGuessingGameCode(buffer.toString('utf8'));
+        const requestedName = interaction.options.getString('game_name')?.trim();
+        if (requestedName) imported = { ...imported, name: requestedName };
+        if (!imported.name || imported.name.length > 80) {
+          return interaction.editReply({ content: 'THE IMPORTED GAME NAME MUST BE BETWEEN 1 AND 80 CHARACTERS.' });
+        }
         const { getGuildConfig } = await import('../../services/config/guildConfig.js');
         const current = await getGuildConfig(client, interaction.guildId);
         const games = { ...(current?.games ?? {}) };
@@ -794,9 +804,11 @@ export default {
       const action = interaction.values[0];
       if (action === 'import_game') {
         const modal = new ModalBuilder().setCustomId('jconfigmodal:games_import_game').setTitle('Import guessing game');
+        const name = new TextInputBuilder().setCustomId('game_name').setLabel('Name for this imported game').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(80);
+        name.setPlaceholder('Leave blank to keep the exported name');
         const input = new TextInputBuilder().setCustomId('game_code').setLabel('Paste the complete game code').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
         input.setPlaceholder('C4G1:...');
-        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(input));
         return interaction.showModal(modal);
       }
       if (action === 'create_game') {
@@ -1536,8 +1548,14 @@ export default {
       const guessingGames = getConfiguredGuessingGames(games);
       if (guessingGames.length >= 25) return interaction.editReply({ content: 'This server has reached the limit of 25 guessing games. Delete one before importing another.' });
       let imported;
-      try { imported = decodeGuessingGameCode(interaction.fields.getTextInputValue('game_code')); }
-      catch (error) { return interaction.editReply({ content: error.message || 'Could not import that game code.' }); }
+      try {
+        imported = decodeGuessingGameCode(interaction.fields.getTextInputValue('game_code'));
+        const requestedName = interaction.fields.getTextInputValue('game_name')?.trim();
+        if (requestedName) imported = { ...imported, name: requestedName };
+        if (!imported.name || imported.name.length > 80) {
+          return interaction.editReply({ content: 'Game name must be between 1 and 80 characters.' });
+        }
+      } catch (error) { return interaction.editReply({ content: error.message || 'Could not import that game code.' }); }
       if (guessingGames.some(game => String(game.name).toLowerCase() === imported.name.toLowerCase())) return interaction.editReply({ content: 'A guessing game with that name already exists. Rename or delete the existing game before importing this one.' });
       const gameId = randomUUID().replace(/-/g, '').slice(0, 8);
       guessingGames.push({ id: gameId, ...imported });
