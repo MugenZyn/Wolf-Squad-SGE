@@ -68,7 +68,24 @@ export default {
       }
       if (interaction.customId?.startsWith('jconfig:') || interaction.customId?.startsWith('jconfigmodal:')) {
         const configCommand = client.commands.get('config');
-        if (configCommand?.handleComponent) return configCommand.handleComponent(interaction, client);
+        if (configCommand?.handleComponent) {
+          try {
+            return await configCommand.handleComponent(interaction, client);
+          } catch (error) {
+            logger.error('Configuration interaction failed:', error);
+            const payload = {
+              content: 'That configuration action failed. Please try again. Check the bot logs for details.',
+              flags: MessageFlags.Ephemeral,
+            };
+            try {
+              if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
+              else await interaction.reply(payload);
+            } catch (replyError) {
+              logger.warn('Could not send configuration interaction error:', replyError.message);
+            }
+            return;
+          }
+        }
       }
       return;
     }
