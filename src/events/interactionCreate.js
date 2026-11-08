@@ -39,7 +39,24 @@ export default {
     if (interaction.isButton() || interaction.isRoleSelectMenu() || interaction.isChannelSelectMenu() || interaction.isStringSelectMenu() || interaction.isRoleSelectMenu() || interaction.isModalSubmit()) {
       if (interaction.customId?.startsWith('game:')) {
         const gameCommand = client.commands.get('game');
-        if (gameCommand?.handleComponent) return gameCommand.handleComponent(interaction, client);
+        if (gameCommand?.handleComponent) {
+          try {
+            return await gameCommand.handleComponent(interaction, client);
+          } catch (error) {
+            logger.error('Guessing game interaction failed:', error);
+            const payload = {
+              content: 'The guessing game interaction failed. Run /game to start again.',
+              flags: MessageFlags.Ephemeral,
+            };
+            try {
+              if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
+              else await interaction.reply(payload);
+            } catch (replyError) {
+              logger.warn('Could not send guessing game interaction error:', replyError.message);
+            }
+            return;
+          }
+        }
       }
       if (interaction.customId?.startsWith('jsetup:')) {
         const setupCommand = client.commands.get('setup-jail');
