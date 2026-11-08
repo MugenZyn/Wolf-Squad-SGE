@@ -133,15 +133,15 @@ function decodeGuessingGameCode(rawCode) {
   let payload;
   try {
     const compressed = Buffer.from(code.slice(GUESSING_GAME_CODE_PREFIX.length), 'base64url');
-    if (!compressed.length || compressed.length > 100000) throw new Error('Invalid code size');
-    payload = JSON.parse(inflateRawSync(compressed, { maxOutputLength: 1000000 }).toString('utf8'));
+    if (!compressed.length || compressed.length > 5 * 1024 * 1024) throw new Error('Invalid code size');
+    payload = JSON.parse(inflateRawSync(compressed, { maxOutputLength: 5 * 1024 * 1024 }).toString('utf8'));
   } catch {
     throw new Error('That game code is damaged or incomplete. Copy the entire code and try again.');
   }
   const game = payload?.game;
   if (payload?.version !== 1 || !game || typeof game.name !== 'string' || !game.name.trim() || game.name.length > 80) throw new Error('The game code is missing a valid game name or uses an unsupported version.');
   if (!Number.isInteger(game.tries) || game.tries < 1 || game.tries > 10 || !Number.isInteger(game.lives) || game.lives < 1 || game.lives > 10) throw new Error('The game code has invalid tries or lives settings.');
-  if (!Array.isArray(game.characters) || game.characters.length < 1 || game.characters.length > 25) throw new Error('Imported games must contain between 1 and 25 characters.');
+  if (!Array.isArray(game.characters) || game.characters.length < 1 || game.characters.length > 500) throw new Error('Imported games must contain between 1 and 500 characters.');
   const seen = new Set();
   for (const character of game.characters) {
     if (!character || typeof character.name !== 'string' || !character.name.trim() || character.name.length > 80 || !Array.isArray(character.hints) || !character.hints.length || character.hints.some(hint => typeof hint !== 'string' || !hint.trim() || hint.length > 250)) throw new Error('The game code contains a character with an invalid name or hints.');
@@ -582,6 +582,10 @@ export default {
       .setName('jail_sound_file')
       .setDescription('Upload or replace the sound played when someone is jailed in voice chat.')
       .setRequired(false))
+    .addAttachmentOption(option => option
+      .setName('guessing_game_file')
+      .setDescription('Import a .txt or .c4g file exported by Conradd4.')
+      .setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction, guildConfig) {
@@ -590,6 +594,52 @@ export default {
     }
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       return interaction.reply({ content: 'ONLY ADMINISTRATORS CAN CHANGE SERVER CONFIGURATION.', flags: MessageFlags.Ephemeral });
+    }
+
+    const gameAttachment = interaction.options.getAttachment('guessing_game_file');
+    if (gameAttachment) {
+      const fileName = String(gameAttachment.name || 'guessing-game.txt');
+      if (!/\\.(?:txt|c4g)$/i.test(fileName)) {
+        return interaction.reply({ content: 'UPLOAD THE GAME EXPORT AS A .TXT OR .C4G FILE.', flags: MessageFlags.Ephemeral });
+      }
+      if (Number(gameAttachment.size) > 8 * 1024 * 1024) {
+        return interaction.reply({ content: 'THE GAME CODE FILE MUST BE 8 MB OR SMALLER.', flags: MessageFlags.Ephemeral });
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      try {
+        const sourceUrl = new URL(gameAttachment.url);
+        if (sourceUrl.protocol !== 'https:' || !['cdn.discordapp.com', 'media.discordapp.net'].includes(sourceUrl.hostname)) {
+          return interaction.editReply({ content: 'DISCORD DID NOT PROVIDE A VALID UPLOAD URL.' });
+        }
+        const response = await fetch(gameAttachment.url, { signal: AbortSignal.timeout(20000) });
+        if (!response.ok) throw new Error(`Discord attachment download returned HTTP ${response.status}.`);
+        const buffer = Buffer.from(await response.arrayBuffer());
+        if (!buffer.length || buffer.length > 8 * 1024 * 1024) {
+          return interaction.editReply({ content: 'THE GAME CODE FILE MUST BE NON-EMPTY AND 8 MB OR SMALLER.' });
+        }
+        const imported = decodeGuessingGameCode(buffer.toString('utf8'));
+        const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+        const current = await getGuildConfig(client, interaction.guildId);
+        const games = { ...(current?.games ?? {}) };
+        const guessingGames = getConfiguredGuessingGames(games);
+        if (guessingGames.length >= 25) return interaction.editReply({ content: 'This server has reached the limit of 25 guessing games. Delete one before importing another.' });
+        if (guessingGames.some(game => String(game.name).toLowerCase() === imported.name.toLowerCase())) {
+          return interaction.editReply({ content: 'A guessing game with that name already exists. Rename or delete the existing game before importing this one.' });
+        }
+        const gameId = randomUUID().replace(/-/g, '').slice(0, 8);
+        guessingGames.push({ id: gameId, ...imported });
+        games.guessingGames = guessingGames;
+        delete games.guessingCategories;
+        await updateGuildConfig(client, interaction.guildId, { games });
+        await logConfigSave(interaction, current?.jail, 'Guessing game imported', '**Game:** ' + imported.name + '\\n**Characters:** ' + imported.characters.length);
+        return interaction.editReply({
+          content: 'Imported **' + imported.name + '** with **' + imported.characters.length + ' characters**.',
+          embeds: panelPayload({ ...(current ?? {}), games }, 'games', 'settings', gameId).embeds,
+          components: panelPayload({ ...(current ?? {}), games }, 'games', 'settings', gameId).components,
+        });
+      } catch (error) {
+        return interaction.editReply({ content: error.message || 'Could not import that game file.' });
+      }
     }
 
     const soundAttachment = interaction.options.getAttachment('jail_sound_file');
