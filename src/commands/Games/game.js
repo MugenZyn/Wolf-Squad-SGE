@@ -85,14 +85,14 @@ async function getCharacterRevealImage(character) {
   let imageUrl = null;
   try {
     const pageUrl = new URL(wikiUrl);
-    if (pageUrl.protocol !== 'https:' || !/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$/i.test(pageUrl.hostname)) return null;
+    if (pageUrl.protocol !== 'https:' || !/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$|(?:^|\\.)wiki\\.gg$/i.test(pageUrl.hostname)) return null;
     const response = await fetch(pageUrl, {
       headers: { 'user-agent': 'Mozilla/5.0 (compatible; Conradd4/1.0; character image preview)' },
       signal: AbortSignal.timeout(7000),
     });
     if (!response.ok) return null;
     const finalHost = new URL(response.url).hostname;
-    if (!/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$/i.test(finalHost)) return null;
+    if (!/(?:^|\\.)fandom\\.com$|(?:^|\\.)wikia\\.org$|(?:^|\\.)wiki\\.gg$/i.test(finalHost)) return null;
     const html = await response.text();
     const metaTags = html.match(/<meta\\b[^>]*>/gi) ?? [];
     for (const tag of metaTags) {
@@ -100,7 +100,7 @@ async function getCharacterRevealImage(character) {
       const match = tag.match(/content=["']([^"']+)["']/i);
       if (!match) continue;
       const candidate = new URL(match[1].replace(/&amp;/g, '&'), wikiUrl);
-      if (candidate.protocol === 'https:' && /^(?:static\\.wikia\\.nocookie\\.net|images\\.fandom\\.com)$/i.test(candidate.hostname)) {
+      if (candidate.protocol === 'https:' && (/^(?:static\\.wikia\\.nocookie\\.net|images\\.fandom\\.com)$/i.test(candidate.hostname) || /(?:^|\\.)wiki\\.gg$/i.test(candidate.hostname) || candidate.hostname === pageUrl.hostname)) {
         imageUrl = candidate.toString();
         break;
       }
