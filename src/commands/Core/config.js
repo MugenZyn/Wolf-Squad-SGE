@@ -101,7 +101,97 @@ function formatDuration(value) {
   return value == null ? 'Infinite' : `${Number(value).toLocaleString()} seconds`;
 }
 
-function panelPayload(config, category = 'jail', page = 'settings') {
+
+function gamesPanelPayload(config, categoryNav, categoryId = null, gameId = null) {
+  const categories = Array.isArray(config?.games?.guessingCategories) ? config.games.guessingCategories : [];
+  const category = categoryId ? categories.find(item => item.id === categoryId) : null;
+  const game = category && gameId ? (category.games ?? []).find(item => item.id === gameId) : null;
+  const embed = new EmbedBuilder().setColor(0x5865F2);
+
+  if (!category) {
+    embed.setTitle('Games configuration')
+      .setDescription('Create categories such as Anime or Video Games. Each category can contain multiple independent character-guessing games, each with its own tries, lives, characters, and hints.')
+      .addFields({
+        name: 'Configured categories',
+        value: categories.length
+          ? categories.map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.games?.length ?? 0) + ' guessing game(s)').join('\n').slice(0, 1000)
+          : 'No categories have been created yet.',
+      });
+    const options = [{ label: 'Create a category', value: 'create_category', description: 'Add a category such as Anime or Video Games' }];
+    categories.slice(0, 24).forEach(item => options.push({
+      label: String(item.name).slice(0, 100),
+      value: 'open:' + item.id,
+      description: (String(item.games?.length ?? 0) + ' guessing game(s)').slice(0, 100),
+    }));
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId('jconfig:games_categories_action')
+      .setPlaceholder('Create or manage a game category')
+      .addOptions(options);
+    return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(menu)], flags: MessageFlags.Ephemeral };
+  }
+
+  if (!game) {
+    const games = Array.isArray(category.games) ? category.games : [];
+    embed.setTitle('Games — ' + String(category.name).slice(0, 200))
+      .setDescription('Create multiple guessing games inside this category. Each game has separate settings and its own characters and hints.')
+      .addFields({
+        name: 'Guessing games',
+        value: games.length
+          ? games.map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.characters?.length ?? 0) + ' character(s), ' + item.tries + ' tries, ' + item.lives + ' lives').join('\n').slice(0, 1000)
+          : 'No guessing games have been created in this category yet.',
+      });
+    const options = [
+      { label: 'Create a guessing game', value: 'create_game', description: 'Create a game with its own tries, lives, and characters' },
+      { label: 'Rename category', value: 'rename_category', description: 'Change this category name' },
+      { label: 'Delete category', value: 'delete_category', description: 'Delete this category and all games inside it' },
+    ];
+    games.slice(0, 22).forEach(item => options.push({
+      label: String(item.name).slice(0, 100),
+      value: 'open_game:' + item.id,
+      description: (String(item.characters?.length ?? 0) + ' character(s) configured').slice(0, 100),
+    }));
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId('jconfig:games_category_action:' + category.id)
+      .setPlaceholder('Manage this category or choose a guessing game')
+      .addOptions(options);
+    const back = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('jconfig:games_back_categories').setLabel('Back to categories').setStyle(ButtonStyle.Secondary),
+    );
+    return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(menu), back], flags: MessageFlags.Ephemeral };
+  }
+
+  const characters = Array.isArray(game.characters) ? game.characters : [];
+  embed.setTitle('Guessing game — ' + String(game.name).slice(0, 200))
+    .setDescription('Each incorrect guess uses one try and reveals the next hint. If the player runs out of tries, the character is revealed and one life is lost.')
+    .addFields(
+      { name: 'Tries per character', value: String(game.tries ?? 3), inline: true },
+      { name: 'Lives', value: String(game.lives ?? 3), inline: true },
+      { name: 'Characters', value: String(characters.length), inline: true },
+      {
+        name: 'Configured characters',
+        value: characters.length
+          ? characters.slice(0, 12).map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.hints?.length ?? 0) + ' hint(s)').join('\n').slice(0, 1000) + (characters.length > 12 ? '\n…and ' + (characters.length - 12) + ' more' : '')
+          : 'No characters configured. Add characters and hints before players can use this game.',
+        inline: false,
+      },
+      { name: 'Character format', value: 'One character per line: Character name | Hint 1 | Hint 2 | Hint 3. Use up to 5 hints per character.', inline: false },
+    );
+  const actions = new StringSelectMenuBuilder()
+    .setCustomId('jconfig:games_game_action:' + category.id + ':' + game.id)
+    .setPlaceholder('Configure this guessing game')
+    .addOptions(
+      { label: 'Edit game settings', value: 'edit_settings', description: 'Change the name, tries per character, and lives' },
+      { label: 'Edit characters and hints', value: 'edit_characters', description: 'Replace or update the character list and hints' },
+      { label: 'Delete guessing game', value: 'delete_game', description: 'Remove this guessing game' },
+    );
+  const back = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('jconfig:games_back_category:' + category.id).setLabel('Back to category').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('jconfig:games_back_categories').setLabel('All categories').setStyle(ButtonStyle.Secondary),
+  );
+  return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(actions), back], flags: MessageFlags.Ephemeral };
+}
+
+function panelPayload(config, category = 'jail', page = 'settings', gamesCategoryId = null, gamesGameId = null) {
   const jail = config?.jail ?? {};
   const logs = config?.logs ?? {};
   const embed = new EmbedBuilder().setColor(0x5865F2);
@@ -111,12 +201,15 @@ function panelPayload(config, category = 'jail', page = 'settings') {
       ['sound', 'Jail Sound'],
       ['logs', 'Logs'],
       ['twitch', 'Twitch'],
+      ['games', 'Games'],
     ].map(([value, label]) => new ButtonBuilder()
       .setCustomId(`jconfig:category:${value}`)
       .setLabel(label)
       .setStyle(category === value ? ButtonStyle.Primary : ButtonStyle.Secondary)
       .setDisabled(category === value))
   );
+
+  if (category === 'games') return gamesPanelPayload(config, categoryNav, gamesCategoryId, gamesGameId);
 
   if (category === 'logs') {
     embed.setTitle('Logs configuration')
@@ -558,6 +651,9 @@ export default {
     const isComponent = interaction.isButton?.() || interaction.isStringSelectMenu?.() || interaction.isRoleSelectMenu?.() || interaction.isChannelSelectMenu?.();
     const opensModal = (interaction.isStringSelectMenu?.() && (
       interaction.customId === 'jconfig:message_choice' ||
+      (interaction.customId === 'jconfig:games_categories_action' && interaction.values?.[0] === 'create_category') ||
+      (interaction.customId?.startsWith('jconfig:games_category_action:') && ['create_game', 'rename_category'].includes(interaction.values?.[0])) ||
+      (interaction.customId?.startsWith('jconfig:games_game_action:') && ['edit_settings', 'edit_characters'].includes(interaction.values?.[0])) ||
       (interaction.customId === 'jconfig:twitch_action' && ['link_streamer', 'unlink_streamer', 'edit_messages'].includes(interaction.values?.[0])) ||
       (interaction.customId?.startsWith('jconfig:') && SETTINGS.some(setting => setting.value === interaction.values?.[0]))
     )) || (interaction.isButton?.() && (
@@ -575,7 +671,7 @@ export default {
     }
     if (interaction.isButton() && interaction.customId.startsWith('jconfig:category:')) {
       const category = interaction.customId.slice('jconfig:category:'.length);
-      if (!['jail', 'sound', 'logs', 'twitch'].includes(category)) return interaction.editReply({ content: 'Invalid configuration category.', embeds: [], components: [] });
+      if (!['jail', 'sound', 'logs', 'twitch', 'games'].includes(category)) return interaction.editReply({ content: 'Invalid configuration category.', embeds: [], components: [] });
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
       const current = await getGuildConfig(client, interaction.guildId);
       return interaction.editReply(panelPayload(current ?? {}, category, 'settings'));
@@ -587,6 +683,147 @@ export default {
       const current = await getGuildConfig(client, interaction.guildId);
       return interaction.editReply(panelPayload(current ?? {}, 'jail', page));
     }
+
+    if (interaction.isButton() && interaction.customId === 'jconfig:games_back_categories') {
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      return interaction.editReply(panelPayload(current ?? {}, 'games'));
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:games_back_category:')) {
+      const categoryId = interaction.customId.slice('jconfig:games_back_category:'.length);
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      return interaction.editReply(panelPayload(current ?? {}, 'games', 'settings', categoryId));
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:games_confirm_delete_category:')) {
+      const categoryId = interaction.customId.slice('jconfig:games_confirm_delete_category:'.length);
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const games = { ...(current?.games ?? {}) };
+      const categories = Array.isArray(games.guessingCategories) ? games.guessingCategories : [];
+      const removed = categories.find(item => item.id === categoryId);
+      if (!removed) return interaction.editReply({ content: 'That category no longer exists.', embeds: [], components: [] });
+      games.guessingCategories = categories.filter(item => item.id !== categoryId);
+      await updateGuildConfig(client, interaction.guildId, { games });
+      await logConfigSave(interaction, current?.jail, 'Guessing category deleted', '**Category:** ' + removed.name);
+      return interaction.editReply(panelPayload({ ...(current ?? {}), games }, 'games'));
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:games_cancel_delete_category:')) {
+      const categoryId = interaction.customId.slice('jconfig:games_cancel_delete_category:'.length);
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      return interaction.editReply(panelPayload(current ?? {}, 'games', 'settings', categoryId));
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:games_confirm_delete_game:')) {
+      const parts = interaction.customId.split(':');
+      const categoryId = parts[3];
+      const gameId = parts[4];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const games = { ...(current?.games ?? {}) };
+      const categories = Array.isArray(games.guessingCategories) ? [...games.guessingCategories] : [];
+      const category = categories.find(item => item.id === categoryId);
+      if (!category) return interaction.editReply({ content: 'That category no longer exists.', embeds: [], components: [] });
+      const removed = (category.games ?? []).find(item => item.id === gameId);
+      if (!removed) return interaction.editReply({ content: 'That guessing game no longer exists.', embeds: [], components: [] });
+      category.games = (category.games ?? []).filter(item => item.id !== gameId);
+      games.guessingCategories = categories;
+      await updateGuildConfig(client, interaction.guildId, { games });
+      await logConfigSave(interaction, current?.jail, 'Guessing game deleted', '**Category:** ' + category.name + '\n**Game:** ' + removed.name);
+      return interaction.editReply(panelPayload({ ...(current ?? {}), games }, 'games', 'settings', categoryId));
+    }
+    if (interaction.isButton() && interaction.customId.startsWith('jconfig:games_cancel_delete_game:')) {
+      const parts = interaction.customId.split(':');
+      const categoryId = parts[3];
+      const gameId = parts[4];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      return interaction.editReply(panelPayload(current ?? {}, 'games', 'settings', categoryId, gameId));
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:games_categories_action') {
+      const action = interaction.values[0];
+      if (action === 'create_category') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_create_category').setTitle('Create game category');
+        const input = new TextInputBuilder().setCustomId('category_name').setLabel('Category name (e.g. Anime)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+      }
+      if (action.startsWith('open:')) {
+        const categoryId = action.slice('open:'.length);
+        const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+        const current = await getGuildConfig(client, interaction.guildId);
+        return interaction.editReply(panelPayload(current ?? {}, 'games', 'settings', categoryId));
+      }
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:games_category_action:')) {
+      const categoryId = interaction.customId.slice('jconfig:games_category_action:'.length);
+      const action = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const category = (current?.games?.guessingCategories ?? []).find(item => item.id === categoryId);
+      if (!category) return interaction.editReply({ content: 'That category no longer exists. Refresh /config → Games.', embeds: [], components: [] });
+      if (action === 'create_game') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_create_game:' + categoryId).setTitle('Create guessing game');
+        const name = new TextInputBuilder().setCustomId('game_name').setLabel('Guessing game name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80);
+        const tries = new TextInputBuilder().setCustomId('tries').setLabel('Tries per character (1–10)').setStyle(TextInputStyle.Short).setRequired(true).setValue('3').setMaxLength(2);
+        const lives = new TextInputBuilder().setCustomId('lives').setLabel('Lives (1–10)').setStyle(TextInputStyle.Short).setRequired(true).setValue('3').setMaxLength(2);
+        modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(tries), new ActionRowBuilder().addComponents(lives));
+        return interaction.showModal(modal);
+      }
+      if (action === 'rename_category') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_rename_category:' + categoryId).setTitle('Rename game category');
+        const input = new TextInputBuilder().setCustomId('category_name').setLabel('New category name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80).setValue(category.name);
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+      }
+      if (action === 'delete_category') {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('jconfig:games_confirm_delete_category:' + categoryId).setLabel('Confirm delete').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('jconfig:games_cancel_delete_category:' + categoryId).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+        );
+        return interaction.editReply({ content: 'Delete **' + category.name + '** and all guessing games and characters inside it?', embeds: [], components: [row] });
+      }
+      if (action.startsWith('open_game:')) {
+        const gameId = action.slice('open_game:'.length);
+        return interaction.editReply(panelPayload(current ?? {}, 'games', 'settings', categoryId, gameId));
+      }
+    }
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:games_game_action:')) {
+      const parts = interaction.customId.split(':');
+      const categoryId = parts[3];
+      const gameId = parts[4];
+      const action = interaction.values[0];
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const category = (current?.games?.guessingCategories ?? []).find(item => item.id === categoryId);
+      const game = category?.games?.find(item => item.id === gameId);
+      if (!category || !game) return interaction.editReply({ content: 'That guessing game no longer exists.', embeds: [], components: [] });
+      if (action === 'edit_settings') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_edit_game:' + categoryId + ':' + gameId).setTitle('Edit guessing game');
+        const name = new TextInputBuilder().setCustomId('game_name').setLabel('Guessing game name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(80).setValue(game.name);
+        const tries = new TextInputBuilder().setCustomId('tries').setLabel('Tries per character (1–10)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2).setValue(String(game.tries ?? 3));
+        const lives = new TextInputBuilder().setCustomId('lives').setLabel('Lives (1–10)').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(2).setValue(String(game.lives ?? 3));
+        modal.addComponents(new ActionRowBuilder().addComponents(name), new ActionRowBuilder().addComponents(tries), new ActionRowBuilder().addComponents(lives));
+        return interaction.showModal(modal);
+      }
+      if (action === 'edit_characters') {
+        const value = (game.characters ?? []).map(character => [character.name, ...(character.hints ?? [])].join(' | ')).join('\n').slice(0, 4000);
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + categoryId + ':' + gameId).setTitle('Edit characters and hints');
+        const input = new TextInputBuilder().setCustomId('characters_data').setLabel('One character per line: Name | Hint 1 | Hint 2').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
+        if (value) input.setValue(value);
+        input.setPlaceholder('Ichigo Kurosaki | Substitute Soul Reaper | Uses Zangetsu');
+        modal.addComponents(new ActionRowBuilder().addComponents(input));
+        return interaction.showModal(modal);
+      }
+      if (action === 'delete_game') {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId('jconfig:games_confirm_delete_game:' + categoryId + ':' + gameId).setLabel('Confirm delete').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId('jconfig:games_cancel_delete_game:' + categoryId + ':' + gameId).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+        );
+        return interaction.editReply({ content: 'Delete the guessing game **' + game.name + '** and its character list?', embeds: [], components: [row] });
+      }
+    }
+
     if (interaction.isStringSelectMenu() && interaction.customId === 'jconfig:log_action') {
       const action = interaction.values[0];
       const { getGuildConfig } = await import('../../services/config/guildConfig.js');
@@ -1242,6 +1479,111 @@ export default {
         ),
       ] });
     }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:games_')) {
+      if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ content: 'Only administrators can change game configuration.', flags: MessageFlags.Ephemeral });
+      }
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const current = await getGuildConfig(client, interaction.guildId);
+      const games = { ...(current?.games ?? {}) };
+      const categories = Array.isArray(games.guessingCategories) ? [...games.guessingCategories] : [];
+      const parts = interaction.customId.split(':');
+      const action = parts[1].slice('games_'.length);
+      const name = action === 'create_category' || action === 'rename_category'
+        ? interaction.fields.getTextInputValue('category_name').trim()
+        : null;
+
+      if (action === 'create_category' || action === 'rename_category') {
+        if (!name) return interaction.editReply({ content: 'Enter a category name.' });
+        if (action === 'create_category' && categories.length >= 24) return interaction.editReply({ content: 'This server has reached the limit of 24 game categories.' });
+        const editingId = action === 'rename_category' ? parts[2] : null;
+        if (categories.some(item => item.id !== editingId && String(item.name).toLowerCase() === name.toLowerCase())) {
+          return interaction.editReply({ content: 'A category with that name already exists.' });
+        }
+        let selectedId = editingId;
+        if (action === 'create_category') {
+          selectedId = randomUUID().replace(/-/g, '').slice(0, 8);
+          categories.push({ id: selectedId, name, games: [] });
+        } else {
+          const category = categories.find(item => item.id === editingId);
+          if (!category) return interaction.editReply({ content: 'That category no longer exists.' });
+          category.name = name;
+        }
+        games.guessingCategories = categories;
+        await updateGuildConfig(client, interaction.guildId, { games });
+        await logConfigSave(interaction, current?.jail, action === 'create_category' ? 'Guessing category created' : 'Guessing category renamed', '**Category:** ' + name);
+        return interaction.editReply(panelPayload({ ...(current ?? {}), games }, 'games', 'settings', selectedId));
+      }
+
+      const categoryId = parts[2];
+      const category = categories.find(item => item.id === categoryId);
+      if (!category) return interaction.editReply({ content: 'That category no longer exists. Open /config → Games and try again.' });
+
+      if (action === 'create_game' || action === 'edit_game') {
+        const gameName = interaction.fields.getTextInputValue('game_name').trim();
+        const triesRaw = interaction.fields.getTextInputValue('tries').trim();
+        const livesRaw = interaction.fields.getTextInputValue('lives').trim();
+        if (!gameName) return interaction.editReply({ content: 'Enter a name for the guessing game.' });
+        if (!/^(?:[1-9]|10)$/.test(triesRaw) || !/^(?:[1-9]|10)$/.test(livesRaw)) {
+          return interaction.editReply({ content: 'Tries and lives must each be a whole number from 1 to 10.' });
+        }
+        const gameId = action === 'edit_game' ? parts[3] : null;
+        if ((category.games ?? []).some(item => item.id !== gameId && String(item.name).toLowerCase() === gameName.toLowerCase())) {
+          return interaction.editReply({ content: 'A guessing game with that name already exists in this category.' });
+        }
+        let selectedGameId = gameId;
+        if (action === 'create_game') {
+          if ((category.games ?? []).length >= 24) return interaction.editReply({ content: 'This category has reached the limit of 24 guessing games.' });
+          selectedGameId = randomUUID().replace(/-/g, '').slice(0, 8);
+          category.games = [...(category.games ?? []), { id: selectedGameId, name: gameName, tries: Number(triesRaw), lives: Number(livesRaw), characters: [] }];
+        } else {
+          const game = (category.games ?? []).find(item => item.id === gameId);
+          if (!game) return interaction.editReply({ content: 'That guessing game no longer exists.' });
+          Object.assign(game, { name: gameName, tries: Number(triesRaw), lives: Number(livesRaw) });
+        }
+        games.guessingCategories = categories;
+        await updateGuildConfig(client, interaction.guildId, { games });
+        await logConfigSave(interaction, current?.jail, action === 'create_game' ? 'Guessing game created' : 'Guessing game settings updated', '**Category:** ' + category.name + '\n**Game:** ' + gameName + '\n**Tries:** ' + triesRaw + '\n**Lives:** ' + livesRaw);
+        return interaction.editReply(panelPayload({ ...(current ?? {}), games }, 'games', 'settings', categoryId, selectedGameId));
+      }
+
+      if (action === 'characters') {
+        const gameId = parts[3];
+        const game = (category.games ?? []).find(item => item.id === gameId);
+        if (!game) return interaction.editReply({ content: 'That guessing game no longer exists.' });
+        const raw = interaction.fields.getTextInputValue('characters_data').trim();
+        if (/^clear$/i.test(raw)) {
+          game.characters = [];
+        } else {
+          const rows = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+          if (!rows.length || rows.length > 25) return interaction.editReply({ content: 'Enter between 1 and 25 characters, one per line. Use CLEAR to remove all characters.' });
+          const parsed = [];
+          const seen = new Set();
+          for (const row of rows) {
+            const values = row.split('|').map(value => value.trim());
+            const characterName = values.shift();
+            const hints = values.filter(Boolean);
+            if (!characterName || characterName.length > 80 || hints.length < 1 || hints.length > 5 || hints.some(hint => hint.length > 250)) {
+              return interaction.editReply({ content: 'Each line must contain a character name followed by 1–5 hints, separated by |. Names must be 1–80 characters and hints must be 250 characters or fewer.' });
+            }
+            const key = characterName.toLowerCase();
+            if (seen.has(key)) return interaction.editReply({ content: 'Character names must be unique within a guessing game. Duplicate found: ' + characterName });
+            seen.add(key);
+            parsed.push({ name: characterName, hints });
+          }
+          game.characters = parsed;
+        }
+        games.guessingCategories = categories;
+        await updateGuildConfig(client, interaction.guildId, { games });
+        await logConfigSave(interaction, current?.jail, 'Guessing game characters updated', '**Category:** ' + category.name + '\n**Game:** ' + game.name + '\n**Characters:** ' + game.characters.length);
+        return interaction.editReply(panelPayload({ ...(current ?? {}), games }, 'games', 'settings', categoryId, gameId));
+      }
+
+      return interaction.editReply({ content: 'Unknown game configuration action.' });
+    }
+
     if (interaction.isModalSubmit() && interaction.customId.startsWith('jconfigmodal:twitch_')) {
       if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
         return interaction.reply({ content: 'Only administrators can change server configuration.', flags: MessageFlags.Ephemeral });
