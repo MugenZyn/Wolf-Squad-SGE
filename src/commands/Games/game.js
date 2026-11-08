@@ -185,13 +185,19 @@ async function runGame(session) {
 
       if (!activeIds.length) break;
 
-      await session.channel.send({
+      const countdownMessage = await session.channel.send({
         content:
           '**Character ' + (characterIndex + 1) + '/' + characters.length + '**\n' +
-          'Next answer window opens in **' + COUNTDOWN_SECONDS + ' seconds**. Wait for the "SAY YOUR ANSWER NOW" message before sending your answer.',
+          'Get ready — say your answer in **' + COUNTDOWN_SECONDS + '**. Wait for the "SAY YOUR ANSWER NOW" message.',
         allowedMentions: { parse: [] },
       });
-      await sleep(COUNTDOWN_SECONDS * 1000);
+      for (let seconds = COUNTDOWN_SECONDS - 1; seconds >= 1; seconds -= 1) {
+        await sleep(1000);
+        await countdownMessage.edit({
+          content: 'Say your answer in **' + seconds + '**... wait for the "SAY YOUR ANSWER NOW" message.',
+        }).catch(() => null);
+      }
+      await sleep(1000);
 
       const hints = Array.isArray(character.hints) ? character.hints : [];
       const hint = hints[Math.min(hintIndex, Math.max(0, hints.length - 1))] || 'No hint configured.';
