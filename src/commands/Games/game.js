@@ -290,9 +290,11 @@ async function runGame(session) {
     );
   const embed = new EmbedBuilder()
     .setColor(0x2ECC71)
-    .setTitle('Guessing game finished!')
+    .setTitle(session.winners?.length ? 'Winning score reached!' : 'Guessing game finished!')
     .setDescription(
       '**Game:** ' + session.game.name +
+      '\n**Winning criteria:** First to ' + session.winningScore + ' correct guesses' +
+      (session.winners?.length ? '\n**Winner(s):** ' + session.winners.map(player => '<@' + player.id + '>').join(', ') : '') +
       '\n\n' + (finalStandings.join('\n') || 'No final scores.')
     );
   await session.channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
