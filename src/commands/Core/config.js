@@ -546,7 +546,7 @@ async function saveJailRoleChannel(interaction, client, roleId, channelId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('config')
-    .setDescription('View and change jail configuration.')
+    .setDescription('View and change server configuration, including jail and games.')
     .addAttachmentOption(option => option
       .setName('jail_sound_file')
       .setDescription('Upload or replace the sound played when someone is jailed in voice chat.')
@@ -1536,7 +1536,7 @@ export default {
         }
         let selectedGameId = gameId;
         if (action === 'create_game') {
-          if ((category.games ?? []).length >= 24) return interaction.editReply({ content: 'This category has reached the limit of 24 guessing games.' });
+          if ((category.games ?? []).length >= 22) return interaction.editReply({ content: 'This category has reached the limit of 22 guessing games.' });
           selectedGameId = randomUUID().replace(/-/g, '').slice(0, 8);
           category.games = [...(category.games ?? []), { id: selectedGameId, name: gameName, tries: Number(triesRaw), lives: Number(livesRaw), characters: [] }];
         } else {
