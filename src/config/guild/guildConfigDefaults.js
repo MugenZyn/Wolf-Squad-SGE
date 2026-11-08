@@ -20,6 +20,9 @@ export const GUILD_CONFIG_DEFAULTS = {
         announcementChannelId: null,
         liveMessages: ['{{streameruser}} IS NOW LIVE {{streamlink}}'],
     },
+    games: {
+        guessingCategories: [],
+    },
     jail: {
         defaultSentenceSeconds: null,
         minimumSentenceSeconds: 600,
