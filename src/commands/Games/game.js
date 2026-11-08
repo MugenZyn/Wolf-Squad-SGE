@@ -5,7 +5,10 @@ import {
   ButtonStyle,
   EmbedBuilder,
   MessageFlags,
+  ModalBuilder,
   SlashCommandBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   StringSelectMenuBuilder,
 } from 'discord.js';
 
@@ -91,6 +94,7 @@ function lobbyPayload(session) {
       { name: 'Players', value: String(players.length), inline: true },
       { name: 'Lives per player', value: String(session.game.lives), inline: true },
       { name: 'Tries per character', value: String(session.game.tries), inline: true },
+      { name: 'Winning score', value: 'First to ' + session.winningScore, inline: true },
     );
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -105,6 +109,12 @@ function lobbyPayload(session) {
       .setDisabled(session.status !== 'lobby' || players.length === 0),
   );
   return { embeds: [embed], components: session.status === 'lobby' ? [row] : [], allowedMentions: { parse: [] } };
+}
+
+function hasActiveChannelSession(guildId, channelId) {
+  return [...activeSessions.values()].some(session =>
+    session.guildId === guildId && session.channelId === channelId && ['lobby', 'playing'].includes(session.status)
+  );
 }
 
 function getSession(token, guildId) {
@@ -265,6 +275,11 @@ async function runGame(session) {
     });
 
     if (![...session.players.values()].some(player => player.lives > 0)) break;
+    const winners = [...session.players.values()].filter(player => player.score >= session.winningScore);
+    if (winners.length) {
+      session.winners = winners;
+      break;
+    }
   }
 
   session.status = 'finished';
@@ -293,6 +308,9 @@ export default {
   async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) {
       return interaction.reply({ content: 'Use this command in a server.', flags: MessageFlags.Ephemeral });
+    }
+    if (hasActiveChannelSession(interaction.guildId, interaction.channelId)) {
+      return interaction.reply({ content: 'A game is already active in this channel. Wait for it to finish before starting another one.', flags: MessageFlags.Ephemeral });
     }
     const guessingGames = getConfiguredGuessingGames(guildConfig?.games ?? {})
       .filter(game => Array.isArray(game.characters) && game.characters.length > 0);
@@ -338,13 +356,50 @@ export default {
       if (!interaction.channel?.isTextBased?.() || typeof interaction.channel.send !== 'function') {
         return interaction.update({ content: 'I cannot create a public game lobby in this channel. Try again in a text channel.', components: [], embeds: [] });
       }
+      if (hasActiveChannelSession(interaction.guildId, interaction.channelId)) {
+        return interaction.update({ content: 'A game is already active in this channel. Wait for it to finish before starting another one.', components: [], embeds: [] });
+      }
+      const modal = new ModalBuilder()
+        .setCustomId('game:host:' + game.id)
+        .setTitle('Choose winning criteria');
+      const scoreInput = new TextInputBuilder()
+        .setCustomId('winning_score')
+        .setLabel('First player to how many correct guesses?')
+        .setPlaceholder('Example: 10')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)
+        .setMaxLength(4);
+      modal.addComponents(new ActionRowBuilder().addComponents(scoreInput));
+      return interaction.showModal(modal);
+    }
+
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('game:host:')) {
+      const rawScore = interaction.fields.getTextInputValue('winning_score').trim();
+      if (!/^\\d+$/.test(rawScore) || Number(rawScore) < 1 || Number(rawScore) > 1000) {
+        return interaction.reply({ content: 'Winning score must be a whole number from 1 to 1,000.', flags: MessageFlags.Ephemeral });
+      }
+      if (hasActiveChannelSession(interaction.guildId, interaction.channelId)) {
+        return interaction.reply({ content: 'A game is already active in this channel. Wait for it to finish before starting another one.', flags: MessageFlags.Ephemeral });
+      }
+      const { getGuildConfig } = await import('../../services/config/guildConfig.js');
+      const config = await getGuildConfig(client, interaction.guildId);
+      const gameId = interaction.customId.slice('game:host:'.length);
+      const game = getConfiguredGuessingGames(config?.games ?? {}).find(item => item.id === gameId);
+      if (!game || !Array.isArray(game.characters) || !game.characters.length) {
+        return interaction.reply({ content: 'That guessing game is no longer available or has no characters configured. Run /game again.', flags: MessageFlags.Ephemeral });
+      }
+      if (!interaction.channel?.isTextBased?.() || typeof interaction.channel.send !== 'function') {
+        return interaction.reply({ content: 'I cannot create a public game lobby in this channel. Try again in a text channel.', flags: MessageFlags.Ephemeral });
+      }
 
       const session = {
         token: randomUUID().replace(/-/g, '').slice(0, 12),
         guildId: interaction.guildId,
+        channelId: interaction.channelId,
         hostId: interaction.user.id,
         channel: interaction.channel,
         status: 'lobby',
+        winningScore: Number(rawScore),
         game: {
           id: game.id,
           name: game.name,
@@ -362,9 +417,15 @@ export default {
           lives: Math.max(1, Math.min(10, Number(game.lives) || 3)),
         }]]),
       };
-      const lobbyMessage = await interaction.channel.send(lobbyPayload(session));
-      session.lobbyMessage = lobbyMessage;
+      // Reserve this channel before awaiting Discord so simultaneous hosts cannot create overlapping lobbies.
       activeSessions.set(session.token, session);
+      try {
+        const lobbyMessage = await interaction.channel.send(lobbyPayload(session));
+        session.lobbyMessage = lobbyMessage;
+      } catch (error) {
+        removeSession(session);
+        throw error;
+      }
       session.lobbyTimer = setTimeout(async () => {
         if (session.status !== 'lobby') return;
         session.status = 'expired';
@@ -377,10 +438,9 @@ export default {
         removeSession(session);
       }, LOBBY_TTL_MS);
       session.lobbyTimer.unref?.();
-      return interaction.update({
-        content: 'Your public game lobby is ready: ' + lobbyMessage.url,
-        components: [],
-        embeds: [],
+      return interaction.reply({
+        content: 'Your public game lobby is ready: ' + session.lobbyMessage.url,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
