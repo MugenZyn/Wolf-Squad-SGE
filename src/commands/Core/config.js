@@ -146,7 +146,7 @@ function gamesPanelPayload(config, categoryNav, gameId = null) {
       { name: 'Configured characters', value: characters.length
         ? characters.slice(0, 12).map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.hints?.length ?? 0) + ' hint(s)').join('\n').slice(0, 1000) + (characters.length > 12 ? '\n…and ' + (characters.length - 12) + ' more' : '')
         : 'No characters configured. Add characters and hints before players can use this game.', inline: false },
-      { name: 'Character format', value: 'One character per line: Character name | hint 1, hint 2 | optional direct image URL. Use up to 5 comma-separated hints.', inline: false },
+      { name: 'Character format', value: 'One character per line: Character name | hint 1, hint 2 | optional direct image URL. Use as many comma-separated hints as you want.', inline: false },
     );
   const actions = new StringSelectMenuBuilder()
     .setCustomId('jconfig:games_game_action:' + game.id)
@@ -1477,8 +1477,8 @@ export default {
               }
             }
             const hints = values.join('|').split(',').map(value => value.trim()).filter(Boolean);
-            if (!characterName || characterName.length > 80 || hints.length < 1 || hints.length > 5 || hints.some(hint => hint.length > 250) || imageUrl.length > 1000) {
-              return interaction.editReply({ content: 'Each line must contain a character name, then |, then 1–5 comma-separated hints, with an optional image URL after another |. Names must be 1–80 characters and hints must be 250 characters or fewer.' });
+            if (!characterName || characterName.length > 80 || hints.length < 1 || hints.some(hint => hint.length > 250) || imageUrl.length > 1000) {
+              return interaction.editReply({ content: 'Each line must contain a character name, then |, then comma-separated hints (no fixed hint limit), with an optional image URL after another |. Names must be 1–80 characters and hints must be 250 characters or fewer.' });
             }
             const key = characterName.toLowerCase();
             if (seen.has(key)) return interaction.editReply({ content: 'Character names must be unique within a guessing game. Duplicate found: ' + characterName });
