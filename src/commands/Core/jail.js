@@ -200,14 +200,15 @@ export default {
     const targetUser = interaction.options.getUser('user', true);
     let target = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
     if (!target) return interaction.reply({ content: 'That member is not in this server.', flags: MessageFlags.Ephemeral });
-    if (target.id === interaction.user.id || target.id === interaction.client.user.id || target.id === interaction.guild.ownerId) {
-      return interaction.reply({ content: 'You cannot jail yourself, the bot, or the server owner.', flags: MessageFlags.Ephemeral });
+    const isServerOwner = target.id === interaction.guild.ownerId;
+    if (target.id === interaction.user.id || target.id === interaction.client.user.id) {
+      return interaction.reply({ content: 'You cannot jail yourself or the bot.', flags: MessageFlags.Ephemeral });
     }
-    if (interaction.member.id !== interaction.guild.ownerId && target.roles.highest.comparePositionTo(interaction.member.roles.highest) >= 0) {
+    if (!isServerOwner && interaction.member.id !== interaction.guild.ownerId && target.roles.highest.comparePositionTo(interaction.member.roles.highest) >= 0) {
       return interaction.reply({ content: 'Your highest role must be above the member you are jailing.', flags: MessageFlags.Ephemeral });
     }
 
-    const assignableRoles = roles.filter(role => !target.roles.cache.has(role.id));
+    const assignableRoles = roles.filter(role => isServerOwner || !target.roles.cache.has(role.id));
     if (!assignableRoles.length) {
       return interaction.reply({
         content: 'That member already has every registered jail role. No role was added.',
@@ -304,7 +305,7 @@ export default {
     const targetVoiceChannelId = target.voice?.channelId ?? null;
     const alreadyHeldRoles = selectedRoles.filter(role => target.roles.cache.has(role.id));
     const rolesToAssign = selectedRoles.filter(role => !target.roles.cache.has(role.id));
-    if (!rolesToAssign.length) {
+    if (!rolesToAssign.length && !isServerOwner) {
       return interaction.editReply({
         content: 'The member already has every selected jail role. No roles were added.',
         components: [],
@@ -313,7 +314,7 @@ export default {
 
     const botMember = interaction.guild.members.me ?? await interaction.guild.members.fetchMe();
     const unmanageableRoles = rolesToAssign.filter(role => botMember.roles.highest.comparePositionTo(role) <= 0);
-    if (unmanageableRoles.length) {
+    if (unmanageableRoles.length && !isServerOwner) {
       await interaction.editReply({
         content: 'My highest role must be above every selected jail role. I cannot assign ' + unmanageableRoles.length + ' selected role(s). The complete list follows.',
         components: [],
@@ -378,7 +379,7 @@ export default {
         failedRoleAssignments.push({ role, error });
       }
     }
-    if (!assignedRoles.length) {
+    if (!assignedRoles.length && !isServerOwner) {
       await interaction.editReply({
         content: 'I could not assign any of the ' + failedRoleAssignments.length + ' selected jail role(s). Check my Manage Roles permission and role hierarchy. The complete list follows.',
         components: [],
@@ -414,8 +415,13 @@ export default {
     const evidence = fetched
       ? [...fetched.values()].filter(message => message.author.id === target.id && !message.system).sort((a, b) => a.createdTimestamp - b.createdTimestamp).slice(-evidenceLimit)
       : [];
+    const ownerFallbackRoles = isServerOwner
+      ? [...new Map([...failedRoleAssignments.map(item => item.role), ...alreadyHeldRoles].map(role => [role.id, role])).values()]
+      : [];
     await interaction.editReply({
-      content: `Assigned ${assignedRoles.length} jail role(s) to **${clip(target.user.tag, 80)}**. Sentence: **${durationLabel}**.`,
+      content: isServerOwner && ownerFallbackRoles.length
+        ? `Created a jail record for server owner **${clip(target.user.tag, 80)}**. Discord did not allow ${ownerFallbackRoles.length} jail role(s) to be applied, so role-based restrictions may not take effect. Sentence: **${durationLabel}**.`
+        : `Assigned ${assignedRoles.length} jail role(s) to **${clip(target.user.tag, 80)}**. Sentence: **${durationLabel}**.`,
       components: [],
     });
     const jumpUrl = evidence.length
@@ -428,6 +434,7 @@ export default {
         { name: 'Jailed member', value: `<@!${target.id}> (${target.id})`, inline: true },
         { name: 'Jailed by', value: `<@!${interaction.user.id}>`, inline: true },
         ...jailRoleEvidenceFields(assignedRoles),
+        ...(ownerFallbackRoles.length ? [{ name: 'Server owner role limitation', value: `${ownerFallbackRoles.length} jail role(s) could not be applied. The jail record and sentence are still active, but Discord role-based restrictions are not applied.`, inline: false }] : []),
         { name: 'Sentence', value: sentenceSeconds === null ? 'Infinite' : `${durationLabel} (${sentenceSeconds.toLocaleString()} seconds)`, inline: true },
         { name: 'Original channel', value: `<#${interaction.channelId}> (${interaction.channelId})`, inline: true },
         { name: 'Time', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
@@ -503,13 +510,20 @@ export default {
     }
 
     const assignedRoleIds = new Set(assignedRoles.map(role => role.id));
+    const jailRecordRoles = [...new Map([...assignedRoles, ...ownerFallbackRoles].map(role => [role.id, role])).values()];
+    const activeRecordRoleIds = new Set(jailRecordRoles.map(role => role.id));
     const activeCases = Array.isArray(jail.activeCases)
-      ? jail.activeCases.filter(item => item.userId !== target.id || !assignedRoleIds.has(item.roleId))
+      ? jail.activeCases.filter(item => item.userId !== target.id || !activeRecordRoleIds.has(item.roleId))
       : [];
     const history = Array.isArray(jail.history) ? jail.history : [];
     const jailedAt = Date.now();
-    for (const role of assignedRoles) {
-      activeCases.push({ userId: target.id, roleId: role.id, releaseAt, sentenceSeconds, evidenceThreadId });
+    for (const role of jailRecordRoles) {
+      const roleAssigned = assignedRoleIds.has(role.id);
+      const ownerFallback = isServerOwner && !roleAssigned;
+      activeCases.push({
+        userId: target.id, roleId: role.id, releaseAt, sentenceSeconds, evidenceThreadId,
+        roleAssigned, ownerFallback,
+      });
       history.push({
         userId: target.id,
         username: target.user.tag,
@@ -520,14 +534,18 @@ export default {
         sentenceSeconds,
         releaseAt,
         roleId: role.id,
+        roleAssigned,
+        ownerFallback,
         evidenceThreadId,
       });
-      if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, { userId: target.id, roleId: role.id, releaseAt });
+      if (releaseAt) scheduleJailRelease(interaction.client, interaction.guild.id, {
+        userId: target.id, roleId: role.id, releaseAt, roleAssigned, ownerFallback,
+      });
     }
     await updateGuildConfig(interaction.client, interaction.guild.id, { jail: { ...jail, activeCases, history } });
     const jailAnnouncement = renderAnnouncement(jail.jailAnnouncement || '{{user}} HAS BEEN JAILED', {
       user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`,
-      role: assignedRoles.length === 1 ? `<@&${assignedRoles[0].id}>` : `${assignedRoles.length} jail roles`, reason: jailReason, duration: durationLabel,
+      role: assignedRoles.length === 1 ? `<@&${assignedRoles[0].id}>` : assignedRoles.length > 1 ? `${assignedRoles.length} jail roles` : ownerFallbackRoles.length ? 'server owner jail record (Discord role assignment unavailable)' : 'jail record', reason: jailReason, duration: durationLabel,
     });
     // Post the jail announcement in the channel where /jail was invoked,
     // rather than the jail role's private destination channel.
@@ -552,8 +570,9 @@ export default {
     }
 
     const assignmentWarnings = [
-      alreadyHeldRoles.length ? alreadyHeldRoles.length + ' role(s) were already held and skipped.' : '',
+      alreadyHeldRoles.length && !isServerOwner ? alreadyHeldRoles.length + ' role(s) were already held and skipped.' : '',
       failedRoleAssignments.length ? failedRoleAssignments.length + ' role(s) could not be assigned.' : '',
+      ownerFallbackRoles.length ? 'The server owner jail record was saved, but Discord did not apply the listed role restrictions.' : '',
     ].filter(Boolean);
     await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings, ...voiceSoundNotice].join('\n'), flags: MessageFlags.Ephemeral });
 
