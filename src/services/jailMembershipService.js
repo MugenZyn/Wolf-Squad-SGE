@@ -63,27 +63,38 @@ export async function resumePausedJailCases(member, client) {
   );
   if (!pausedCases.length) return 0;
 
-  const botMember = member.guild.members.me ?? await member.guild.members.fetchMe();
-  if (!botMember.permissions.has(PermissionFlagsBits.ManageRoles)) {
-    console.error(`Cannot restore jail roles for rejoined member ${member.id}: bot is missing Manage Roles permission.`);
-    return 0;
-  }
+  const roleBackedCases = pausedCases.filter(jailCase =>
+    !(jailCase.ownerFallback === true && jailCase.roleAssigned === false)
+  );
+  const botMember = roleBackedCases.length
+    ? (member.guild.members.me ?? await member.guild.members.fetchMe())
+    : null;
+  const canManageRoles = !roleBackedCases.length || botMember.permissions.has(PermissionFlagsBits.ManageRoles);
 
   const now = Date.now();
   const resumedCases = [];
   const failedRoles = [];
   for (const jailCase of pausedCases) {
-    const role = await member.guild.roles.fetch(jailCase.roleId).catch(() => null);
-    if (!role || role.managed || botMember.roles.highest.comparePositionTo(role) <= 0) {
-      failedRoles.push(jailCase.roleId);
-      continue;
+    const ownerFallback = jailCase.ownerFallback === true && jailCase.roleAssigned === false;
+    if (!ownerFallback) {
+      const role = await member.guild.roles.fetch(jailCase.roleId).catch(() => null);
+      if (!canManageRoles || !role || role.managed || botMember.roles.highest.comparePositionTo(role) <= 0) {
+        failedRoles.push(jailCase.roleId);
+        continue;
+      }
+
+      try {
+        if (!member.roles.cache.has(role.id)) {
+          await member.roles.add(role, 'Restore active jail role after member rejoined the server');
+        }
+      } catch (error) {
+        failedRoles.push(role.id);
+        console.error(`Failed to restore jail role ${role.id} for rejoined member ${member.id}:`, error);
+        continue;
+      }
     }
 
     try {
-      if (!member.roles.cache.has(role.id)) {
-        await member.roles.add(role, 'Restore active jail role after member rejoined the server');
-      }
-
       let remainingSeconds = null;
       if (jailCase.remainingSeconds !== null && jailCase.remainingSeconds !== undefined
         && Number.isFinite(Number(jailCase.remainingSeconds))) {
@@ -104,8 +115,8 @@ export async function resumePausedJailCases(member, client) {
         releaseAt: remainingSeconds === null ? null : now + remainingSeconds * 1000,
       });
     } catch (error) {
-      failedRoles.push(role.id);
-      console.error(`Failed to restore jail role ${role.id} for rejoined member ${member.id}:`, error);
+      failedRoles.push(jailCase.roleId);
+      console.error(`Failed to resume jail sentence for rejoined member ${member.id}:`, error);
     }
   }
 
