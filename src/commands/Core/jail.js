@@ -418,9 +418,13 @@ export default {
     const ownerFallbackRoles = isServerOwner
       ? [...new Map([...failedRoleAssignments.map(item => item.role), ...alreadyHeldRoles].map(role => [role.id, role])).values()]
       : [];
+    const ownerRoleLimitNote = [
+      failedRoleAssignments.length ? `Discord blocked ${failedRoleAssignments.length} jail role assignment(s).` : '',
+      alreadyHeldRoles.length ? `${alreadyHeldRoles.length} selected jail role(s) were already held and were left unchanged.` : '',
+    ].filter(Boolean).join(' ');
     await interaction.editReply({
       content: isServerOwner && ownerFallbackRoles.length
-        ? `Created a jail record for server owner **${clip(target.user.tag, 80)}**. Discord did not allow ${ownerFallbackRoles.length} jail role(s) to be applied, so role-based restrictions may not take effect. Sentence: **${durationLabel}**.`
+        ? `Created a jail record for server owner **${clip(target.user.tag, 80)}**. ${ownerRoleLimitNote} The server owner may still bypass role-based channel restrictions. Sentence: **${durationLabel}**.`
         : `Assigned ${assignedRoles.length} jail role(s) to **${clip(target.user.tag, 80)}**. Sentence: **${durationLabel}**.`,
       components: [],
     });
@@ -434,7 +438,7 @@ export default {
         { name: 'Jailed member', value: `<@!${target.id}> (${target.id})`, inline: true },
         { name: 'Jailed by', value: `<@!${interaction.user.id}>`, inline: true },
         ...jailRoleEvidenceFields(assignedRoles),
-        ...(ownerFallbackRoles.length ? [{ name: 'Server owner role limitation', value: `${ownerFallbackRoles.length} jail role(s) could not be applied. The jail record and sentence are still active, but Discord role-based restrictions are not applied.`, inline: false }] : []),
+        ...(ownerFallbackRoles.length ? [{ name: 'Server owner role limitation', value: `${ownerRoleLimitNote} The jail record and sentence are still active. Discord server owners may bypass role-based channel restrictions.`, inline: false }] : []),
         { name: 'Sentence', value: sentenceSeconds === null ? 'Infinite' : `${durationLabel} (${sentenceSeconds.toLocaleString()} seconds)`, inline: true },
         { name: 'Original channel', value: `<#${interaction.channelId}> (${interaction.channelId})`, inline: true },
         { name: 'Time', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
@@ -571,8 +575,8 @@ export default {
 
     const assignmentWarnings = [
       alreadyHeldRoles.length && !isServerOwner ? alreadyHeldRoles.length + ' role(s) were already held and skipped.' : '',
-      failedRoleAssignments.length ? failedRoleAssignments.length + ' role(s) could not be assigned.' : '',
-      ownerFallbackRoles.length ? 'The server owner jail record was saved, but Discord did not apply the listed role restrictions.' : '',
+      failedRoleAssignments.length && !isServerOwner ? failedRoleAssignments.length + ' role(s) could not be assigned.' : '',
+      ownerFallbackRoles.length ? 'Server-owner jail record saved. ' + ownerRoleLimitNote + ' The owner may still bypass role-based restrictions.' : '',
     ].filter(Boolean);
     await interaction.followUp({ content: [evidenceResult, ...assignmentWarnings, ...voiceSoundNotice].join('\n'), flags: MessageFlags.Ephemeral });
 
