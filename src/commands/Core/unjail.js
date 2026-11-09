@@ -67,9 +67,8 @@ export default {
     const isServerOwner = target.id === interaction.guild.ownerId;
     const activeTargetCases = (Array.isArray(jail.activeCases) ? jail.activeCases : [])
       .filter(entry => entry?.userId === target.id);
-    const ownerFallbackCases = isServerOwner
-      ? activeTargetCases.filter(entry => entry.ownerFallback === true && entry.roleAssigned === false)
-      : [];
+    const ownerFallbackCases = activeTargetCases
+      .filter(entry => entry.ownerFallback === true && entry.roleAssigned === false);
     const ownerFallbackRoleIds = new Set(ownerFallbackCases.map(entry => entry.roleId).filter(Boolean));
     const configuredRoleIds = (Array.isArray(jail.roles) ? jail.roles : [])
       .map(entry => entry?.roleId)
@@ -128,14 +127,14 @@ export default {
         .filter(entry => entry.userId === target.id && clearedCaseRoleIds.has(entry.roleId) && entry.evidenceThreadId)
         .map(entry => entry.evidenceThreadId),
       ...(currentJail.activeCases ?? [])
-        .filter(entry => entry.userId === target.id && removed.includes(entry.roleId) && entry.evidenceThreadId)
+        .filter(entry => entry.userId === target.id && clearedCaseRoleIds.has(entry.roleId) && entry.evidenceThreadId)
         .map(entry => entry.evidenceThreadId),
     ].filter(Boolean))];
     for (const threadId of evidenceThreadIds) {
       const thread = await interaction.guild.channels.fetch(threadId).catch(() => null);
       if (!thread?.isTextBased() || typeof thread.send !== 'function') continue;
       const rolesForThread = [...new Set((currentJail.history ?? [])
-        .filter(entry => entry.userId === target.id && clearedCaseRoleIds.has(entry.roleId) && entry.evidenceThreadId === threadId)
+        .filter(entry => entry.userId === target.id && removed.includes(entry.roleId) && entry.evidenceThreadId === threadId)
         .map(entry => entry.roleId))];
       const namesForThread = [];
       for (const roleId of rolesForThread) {
@@ -209,6 +208,9 @@ export default {
         : ownerFallbackCases.length
           ? `Cleared the server-owner jail record for <@${target.id}>. Discord had not allowed the jail role(s) to be applied.`
           : `No jail roles could be removed from <@${target.id}>.`,
+      removed.length && ownerFallbackCases.length
+        ? `Also cleared ${ownerFallbackCases.length} server-owner jail fallback record(s).`
+        : '',
       (removed.length || ownerFallbackCases.length) && evidenceLogCount
         ? `Posted the unjail record in ${evidenceLogCount} jail evidence thread(s).`
         : removed.length || ownerFallbackCases.length
