@@ -201,7 +201,7 @@ function gamesPanelPayload(config, categoryNav, gameId = null) {
       { name: 'Configured characters', value: characters.length
         ? characters.slice(0, 12).map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.hints?.length ?? 0) + ' hint(s)').join('\n').slice(0, 1000) + (characters.length > 12 ? '\n…and ' + (characters.length - 12) + ' more' : '')
         : 'No characters configured. Add characters and hints before players can use this game.', inline: false },
-      { name: 'Character format', value: 'Add characters with five separate entry fields. Each field can contain one or more lines in this format: Character name | hint 1, hint 2 | optional image URL. Use Replace character list only when you want to replace everything.', inline: false },
+      { name: 'Character format', value: 'Both Add and Replace use five separate entry fields. Each field accepts one or multiple lines: Character name | hint 1, hint 2 | optional image URL. Add appends; Replace overwrites the full character list with the submitted entries.', inline: false },
     );
   const actions = new StringSelectMenuBuilder()
     .setCustomId('jconfig:games_game_action:' + game.id)
