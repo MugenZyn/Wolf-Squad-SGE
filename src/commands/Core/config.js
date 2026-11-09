@@ -829,13 +829,13 @@ export default {
         for (let slot = 1; slot <= 5; slot++) {
           const rawSlot = interaction.fields.getTextInputValue('character_' + slot).trim();
           if (!rawSlot) continue;
-          const rows = rawSlot.split(/\\r?\\n/).map(line => line.trim()).filter(Boolean);
+          const rows = rawSlot.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
           for (let lineIndex = 0; lineIndex < rows.length; lineIndex++) {
             const values = rows[lineIndex].split('|').map(value => value.trim());
             const characterName = values.shift();
             let imageUrl = '';
             const possibleImageUrl = values.at(-1) ?? '';
-            if (/^[a-z][a-z0-9+.-]*:\\/\\//i.test(possibleImageUrl)) {
+            if (/^[a-z][a-z0-9+.-]*:\/\//i.test(possibleImageUrl)) {
               values.pop();
               try {
                 const parsedUrl = new URL(possibleImageUrl);
@@ -875,7 +875,7 @@ export default {
           interaction,
           current?.jail,
           isReplace ? 'Guessing game character list replaced' : 'Guessing game characters added',
-          '**Game:** ' + game.name + '\\n**' + (isReplace ? 'Replaced with' : 'Added') + ':** ' + parsedCharacters.length + '\\n**Total:** ' + game.characters.length
+          '**Game:** ' + game.name + '\n**' + (isReplace ? 'Replaced with' : 'Added') + ':** ' + parsedCharacters.length + '\n**Total:** ' + game.characters.length
         );
         return interaction.editReply({
           ...panelPayload({ ...(current ?? {}), games }, 'games', 'settings', gameId),
