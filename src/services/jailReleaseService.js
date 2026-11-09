@@ -52,7 +52,9 @@ export function scheduleJailRelease(client, guildId, jailCase) {
         return;
       }
 
-      if (member.roles.cache.has(jailCase.roleId)) {
+      // Owner fallback cases track a sentence even when Discord refused the role assignment.
+      // Never remove a role that the bot did not assign for that fallback case.
+      if (currentCase.roleAssigned !== false && member.roles.cache.has(jailCase.roleId)) {
         markExpectedJailRoleRemoval(guildId, member.id, jailCase.roleId);
         try {
           await member.roles.remove(jailCase.roleId, 'Jail duration expired');
