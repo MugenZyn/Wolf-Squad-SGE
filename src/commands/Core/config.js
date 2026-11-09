@@ -13,7 +13,7 @@ const SETTINGS = [
   { label: 'Evidence messages', value: 'evidence_count', description: 'Number of messages to forward (1–10)' },
   { label: 'Default evidence note', value: 'default_message', description: 'Text shown in evidence; CLEAR removes it' },
   { label: 'Jail announcement', value: 'jail_announcement', description: 'Use {{user}}, {{server}}, {{moderator}}, {{role}}, {{reason}}, {{duration}}' },
-  { label: 'Unjail announcement', value: 'unjail_announcement', description: 'Use {{user}}, {{server}}, {{moderator}}, {{roles}}' },
+  { label: 'Unjail announcement', value: 'unjail_announcement', description: 'Use {{user}}, {{server}}, {{moderator}}, {{roles}}, {{reason}}' },
 ];
 
 const pendingRoleRemovals = new Map();
