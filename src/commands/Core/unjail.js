@@ -22,7 +22,7 @@ function chunkListItems(items, maxLength = 1600, separator = ', ') {
 }
 
 function renderAnnouncement(template, values) {
-  return String(template ?? '').replace(/\{\{(user|server|moderator|roles)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
+  return String(template ?? '').replace(/\{\{(user|server|moderator|roles|reason)\}\}/gi, (_, key) => values[key.toLowerCase()] ?? '');
 }
 
 export default {
@@ -32,7 +32,12 @@ export default {
     .addUserOption(option => option
       .setName('user')
       .setDescription('Member to release from jail.')
-      .setRequired(true)),
+      .setRequired(true))
+    .addStringOption(option => option
+      .setName('reason')
+      .setDescription('Why the member is being released from jail.')
+      .setRequired(false)
+      .setMaxLength(1000)),
 
   async execute(interaction, guildConfig) {
     if (!interaction.inGuild() || !interaction.guild) {
@@ -42,6 +47,7 @@ export default {
       return interaction.reply({ content: 'You need Administrator, Manage Messages, or a configured policeman role to unjail members.', flags: MessageFlags.Ephemeral });
     }
 
+    const unjailReason = interaction.options.getString('reason')?.trim() || 'No reason provided.';
     const targetUser = interaction.options.getUser('user', true);
     const target = await interaction.guild.members.fetch(targetUser.id).catch(() => null);
     if (!target) {
@@ -113,7 +119,7 @@ export default {
     );
     const updatedHistory = (currentJail.history ?? []).map(entry =>
       entry.userId === target.id && clearedCaseRoleIds.has(entry.roleId)
-        ? { ...entry, unjailedAt: releasedAt, unjailedBy: interaction.user.id }
+        ? { ...entry, unjailedAt: releasedAt, unjailedBy: interaction.user.id, unjailedReason: unjailReason }
         : entry
     );
     await updateGuildConfig(interaction.client, interaction.guild.id, {
@@ -155,6 +161,7 @@ export default {
           `**Member:** <@${target.id}> (${target.id})`,
           `**Released by:** <@${interaction.user.id}>`,
           roleLine,
+          `**Reason:** ${unjailReason.slice(0, 1000)}`,
           `**Released at:** <t:${Math.floor(releasedAt / 1000)}:F>`,
         ].join('\n'),
         allowedMentions: { parse: [] },
@@ -181,6 +188,7 @@ export default {
       server: interaction.guild.name,
       moderator: `<@${interaction.user.id}>`,
       roles: roleAnnouncementText.length <= 900 ? (roleAnnouncementText || (ownerFallbackCases.length ? 'server owner jail record' : '')) : `${removedRoleNames.length} jail roles`,
+      reason: unjailReason.slice(0, 1000),
     });
     // Post the unjail announcement both where the command was run and
     // in the configured announcements channel. Do not post it in private jail channels.
@@ -216,6 +224,7 @@ export default {
           ? 'Could not post to an evidence thread for this release. Older cases may not have a saved evidence-thread link.'
           : '',
       failed.length ? `Could not remove ${failed.length} jail role(s). Check the bot's role hierarchy and permissions.` : '',
+      `Reason: ${unjailReason}`,
     ].filter(Boolean);
     await interaction.reply({
       content: lines.join('\n'),
