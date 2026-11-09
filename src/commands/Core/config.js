@@ -741,7 +741,7 @@ export default {
     const opensModal = (interaction.isStringSelectMenu?.() && (
       interaction.customId === 'jconfig:message_choice' ||
       (interaction.customId === 'jconfig:games_list_action' && ['create_game', 'import_game'].includes(interaction.values?.[0])) ||
-      (interaction.customId?.startsWith('jconfig:games_game_action:') && ['edit_settings', 'edit_characters', 'export_game'].includes(interaction.values?.[0])) ||
+      (interaction.customId?.startsWith('jconfig:games_game_action:') && ['edit_settings', 'edit_characters', 'add_characters', 'replace_characters', 'export_game'].includes(interaction.values?.[0])) ||
       (interaction.customId === 'jconfig:twitch_action' && ['link_streamer', 'unlink_streamer', 'edit_messages'].includes(interaction.values?.[0])) ||
       (interaction.customId?.startsWith('jconfig:') && SETTINGS.some(setting => setting.value === interaction.values?.[0]))
     )) || (interaction.isButton?.() && (
