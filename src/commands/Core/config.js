@@ -201,14 +201,15 @@ function gamesPanelPayload(config, categoryNav, gameId = null) {
       { name: 'Configured characters', value: characters.length
         ? characters.slice(0, 12).map(item => '**' + String(item.name).slice(0, 80) + '** — ' + (item.hints?.length ?? 0) + ' hint(s)').join('\n').slice(0, 1000) + (characters.length > 12 ? '\n…and ' + (characters.length - 12) + ' more' : '')
         : 'No characters configured. Add characters and hints before players can use this game.', inline: false },
-      { name: 'Character format', value: 'One character per line: Character name | hint 1, hint 2 | optional direct image URL. Use as many comma-separated hints as you want.', inline: false },
+      { name: 'Character format', value: 'Add characters with five separate entry fields. Each field can contain one or more lines in this format: Character name | hint 1, hint 2 | optional image URL. Use Replace character list only when you want to replace everything.', inline: false },
     );
   const actions = new StringSelectMenuBuilder()
     .setCustomId('jconfig:games_game_action:' + game.id)
     .setPlaceholder('Configure this guessing game')
     .addOptions(
       { label: 'Edit game settings', value: 'edit_settings', description: 'Change the name, tries per character, and lives' },
-      { label: 'Edit characters and hints', value: 'edit_characters', description: 'Replace or update the character list and hints' },
+      { label: 'Add characters (5 entry fields)', value: 'add_characters', description: 'Add up to five batches of characters without removing existing ones' },
+      { label: 'Replace character list', value: 'edit_characters', description: 'Replace the entire character list and hints' },
       { label: 'Export game code', value: 'export_game', description: 'Create a shareable code for this game' },
       { label: 'Delete guessing game', value: 'delete_game', description: 'Remove this guessing game' },
     );
@@ -817,8 +818,20 @@ export default {
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('jconfig:games_game_action:')) {
       const gameId = interaction.customId.slice('jconfig:games_game_action:'.length);
       const action = interaction.values[0];
+      if (action === 'add_characters') {
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_add_characters:' + gameId).setTitle('Add up to 5 characters');
+        const inputs = Array.from({ length: 5 }, (_, index) => new TextInputBuilder()
+          .setCustomId('character_' + (index + 1))
+          .setLabel('Character entry ' + (index + 1))
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(4000)
+          .setPlaceholder('Name | hint 1, hint 2 | optional image URL'));
+        modal.addComponents(...inputs.map(input => new ActionRowBuilder().addComponents(input)));
+        return interaction.showModal(modal);
+      }
       if (action === 'edit_characters') {
-        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + gameId).setTitle('Edit characters and hints');
+        const modal = new ModalBuilder().setCustomId('jconfigmodal:games_characters:' + gameId).setTitle('Replace character list');
         const input = new TextInputBuilder().setCustomId('characters_data').setLabel('Name | hints | optional image URL').setStyle(TextInputStyle.Paragraph).setRequired(true).setMaxLength(4000);
         input.setPlaceholder('Ichigo Kurosaki | substitute soul reaper, uses Zangetsu | https://example.com/ichigo.png');
         modal.addComponents(new ActionRowBuilder().addComponents(input));
@@ -1593,6 +1606,59 @@ export default {
       const gameId = parts[2];
       const game = guessingGames.find(item => item.id === gameId);
       if (!game) return interaction.editReply({ content: 'That guessing game no longer exists. Open /config → Games and try again.' });
+      if (action === 'add_characters') {
+        const additions = [];
+        const existingCharacters = Array.isArray(game.characters) ? [...game.characters] : [];
+        const seenNames = new Set(existingCharacters
+          .map(character => String(character?.name ?? '').trim().toLowerCase())
+          .filter(Boolean));
+
+        for (let slot = 1; slot <= 5; slot++) {
+          const rawSlot = interaction.fields.getTextInputValue('character_' + slot).trim();
+          if (!rawSlot) continue;
+          const rows = rawSlot.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+          for (let lineIndex = 0; lineIndex < rows.length; lineIndex++) {
+            const values = rows[lineIndex].split('|').map(value => value.trim());
+            const characterName = values.shift();
+            let imageUrl = '';
+            const possibleImageUrl = values.at(-1) ?? '';
+            if (/^[a-z][a-z0-9+.-]*:\/\//i.test(possibleImageUrl)) {
+              values.pop();
+              try {
+                const parsedUrl = new URL(possibleImageUrl);
+                if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error('Unsupported image URL protocol');
+                imageUrl = parsedUrl.toString();
+              } catch {
+                return interaction.editReply({ content: `Entry ${slot}, line ${lineIndex + 1}: the image URL must be a valid HTTP or HTTPS URL.` });
+              }
+            }
+            const hints = values.join('|').split(',').map(value => value.trim()).filter(Boolean);
+            if (!characterName || characterName.length > 80 || hints.length < 1 || hints.some(hint => hint.length > 250) || imageUrl.length > 1000) {
+              return interaction.editReply({ content: `Entry ${slot}, line ${lineIndex + 1}: use Character name | hint 1, hint 2 | optional image URL. Names must be 1–80 characters and each hint must be 250 characters or fewer.` });
+            }
+            const key = characterName.toLowerCase();
+            if (seenNames.has(key)) {
+              return interaction.editReply({ content: `The character **${characterName}** already exists in this game or appears more than once in this batch.` });
+            }
+            seenNames.add(key);
+            additions.push({ name: characterName, hints, ...(imageUrl ? { imageUrl } : {}) });
+          }
+        }
+
+        if (!additions.length) return interaction.editReply({ content: 'Enter at least one character in the five entry fields. Empty fields are ignored.' });
+        if (existingCharacters.length + additions.length > 500) return interaction.editReply({ content: 'This game cannot contain more than 500 characters. Remove some characters before adding this batch.' });
+
+        game.characters = [...existingCharacters, ...additions];
+        games.guessingGames = guessingGames;
+        delete games.guessingCategories;
+        await updateGuildConfig(client, interaction.guildId, { games });
+        await logConfigSave(interaction, current?.jail, 'Guessing game characters added', '**Game:** ' + game.name + '\n**Added:** ' + additions.length + '\n**Total:** ' + game.characters.length);
+        return interaction.editReply({
+          ...panelPayload({ ...(current ?? {}), games }, 'games', 'settings', gameId),
+          content: `Added ${additions.length} character(s) to **${game.name}**. The game now has ${game.characters.length} character(s).`,
+        });
+      }
+
       if (action === 'characters') {
         const raw = interaction.fields.getTextInputValue('characters_data').trim();
         if (/^clear$/i.test(raw)) {
