@@ -226,7 +226,6 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesGameId 
   const categoryNav = new ActionRowBuilder().addComponents(
     ...[
       ['jail', 'Jail'],
-      ['sound', 'Jail Sound'],
       ['logs', 'Member Logs'],
       ['twitch', 'Twitch'],
       ['games', 'Games'],
@@ -256,27 +255,6 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesGameId 
   }
 
 
-  if (category === 'sound') {
-    const configured = Boolean(jail.voiceSoundUrl || (jail.voiceSoundChannelId && jail.voiceSoundMessageId));
-    const status = !configured ? 'No sound uploaded' : (jail.voiceSoundEnabled ? 'Enabled' : 'Uploaded, disabled');
-    embed.setTitle('Jail voice sound')
-      .setDescription('Upload a sound with the optional jail_sound_file attachment on /config. The bot plays it in the member\'s voice channel when they are jailed, then disconnects that member after playback finishes. If the bot is already connected to voice elsewhere, playback is skipped and the member is left connected.')
-      .addFields(
-        { name: 'Status', value: status, inline: true },
-        { name: 'Current file', value: jail.voiceSoundFileName || 'None uploaded', inline: true },
-        { name: 'Upload requirements', value: 'MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, or WEBM\nMaximum file size: 15 MB\nMaximum playback length: 60 seconds', inline: false },
-        { name: 'Required permissions', value: 'View Channel, Connect, Speak, and Move Members', inline: false },
-      );
-    const soundActions = new StringSelectMenuBuilder()
-      .setCustomId('jconfig:jail_sound_action')
-      .setPlaceholder('Configure the voice jail sound')
-      .addOptions(
-        { label: 'Upload or replace sound', value: 'upload_help', description: 'Run /config and attach the jail_sound_file option' },
-        ...(configured ? [{ label: jail.voiceSoundEnabled ? 'Disable voice jail sound' : 'Enable voice jail sound', value: 'toggle', description: 'Turn the uploaded sound on or off' }] : []),
-        ...(configured ? [{ label: 'Remove uploaded sound', value: 'clear', description: 'Delete the saved sound file and disable playback' }] : []),
-      );
-    return { content: '', embeds: [embed], components: [categoryNav, new ActionRowBuilder().addComponents(soundActions)], flags: MessageFlags.Ephemeral };
-  }
 
   if (category === 'twitch') {
     const twitch = config?.twitch ?? {};
@@ -314,12 +292,35 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesGameId 
       ['channels', 'Channels'],
       ['logs', 'Logs'],
       ['messages', 'Messages'],
+      ['sound', 'Jail Sound'],
     ].map(([value, label]) => new ButtonBuilder()
       .setCustomId(`jconfig:page:${value}`)
       .setLabel(label)
       .setStyle(page === value ? ButtonStyle.Primary : ButtonStyle.Secondary)
       .setDisabled(page === value))
   );
+  if (page === 'sound') {
+    const configured = Boolean(jail.voiceSoundUrl || (jail.voiceSoundChannelId && jail.voiceSoundMessageId));
+    const status = !configured ? 'No sound uploaded' : (jail.voiceSoundEnabled ? 'Enabled' : 'Uploaded, disabled');
+    embed.setTitle('Jail voice sound')
+      .setDescription('Upload a sound with the optional jail_sound_file attachment on /config. The bot plays it in the member\'s voice channel when they are jailed, then disconnects that member after playback finishes. If the bot is already connected to voice elsewhere, playback is skipped and the member is left connected.')
+      .addFields(
+        { name: 'Status', value: status, inline: true },
+        { name: 'Current file', value: jail.voiceSoundFileName || 'None uploaded', inline: true },
+        { name: 'Upload requirements', value: 'MP3, WAV, OGG, OPUS, M4A, AAC, FLAC, or WEBM\nMaximum file size: 15 MB\nMaximum playback length: 60 seconds', inline: false },
+        { name: 'Required permissions', value: 'View Channel, Connect, Speak, and Move Members', inline: false },
+      );
+    const soundActions = new StringSelectMenuBuilder()
+      .setCustomId('jconfig:jail_sound_action')
+      .setPlaceholder('Configure the voice jail sound')
+      .addOptions(
+        { label: 'Upload or replace sound', value: 'upload_help', description: 'Run /config and attach the jail_sound_file option' },
+        ...(configured ? [{ label: jail.voiceSoundEnabled ? 'Disable voice jail sound' : 'Enable voice jail sound', value: 'toggle', description: 'Turn the uploaded sound on or off' }] : []),
+        ...(configured ? [{ label: 'Remove uploaded sound', value: 'clear', description: 'Delete the saved sound file and disable playback' }] : []),
+      );
+    return { content: '', embeds: [embed], components: [categoryNav, nav, new ActionRowBuilder().addComponents(soundActions)], flags: MessageFlags.Ephemeral };
+  }
+
   let controls = [];
   if (page === 'settings') {
     embed.setDescription('Configure jail durations and evidence defaults.')
@@ -911,7 +912,7 @@ export default {
         await updateGuildConfig(client, interaction.guildId, { jail });
         await logConfigSave(interaction, jail, jail.voiceSoundEnabled ? 'Jail voice sound enabled' : 'Jail voice sound disabled', `**File:** ${jail.voiceSoundFileName || 'Configured sound'}`);
         const updated = { ...(current ?? {}), jail };
-        return interaction.editReply(panelPayload(updated, 'jail', 'settings'));
+        return interaction.editReply(panelPayload(updated, 'jail', 'sound'));
       }
       if (action === 'clear') {
         const oldChannelId = jail.voiceSoundChannelId;
@@ -930,7 +931,7 @@ export default {
           if (oldMessage) await oldMessage.delete().catch(() => null);
         }
         await logConfigSave(interaction, jail, 'Jail voice sound removed', '**File:** Removed');
-        return interaction.editReply(panelPayload({ ...(current ?? {}), jail }, 'jail', 'settings'));
+        return interaction.editReply(panelPayload({ ...(current ?? {}), jail }, 'jail', 'sound'));
       }
       return interaction.editReply({ content: 'INVALID JAIL SOUND SETTING.', embeds: [], components: [] });
     }
