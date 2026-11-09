@@ -292,12 +292,18 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesGameId 
       ['channels', 'Channels'],
       ['logs', 'Logs'],
       ['messages', 'Messages'],
-      ['sound', 'Jail Sound'],
     ].map(([value, label]) => new ButtonBuilder()
       .setCustomId(`jconfig:page:${value}`)
       .setLabel(label)
       .setStyle(page === value ? ButtonStyle.Primary : ButtonStyle.Secondary)
       .setDisabled(page === value))
+  );
+  const soundNav = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('jconfig:page:sound')
+      .setLabel('Jail Sound')
+      .setStyle(page === 'sound' ? ButtonStyle.Primary : ButtonStyle.Secondary)
+      .setDisabled(page === 'sound')
   );
   if (page === 'sound') {
     const configured = Boolean(jail.voiceSoundUrl || (jail.voiceSoundChannelId && jail.voiceSoundMessageId));
@@ -318,7 +324,7 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesGameId 
         ...(configured ? [{ label: jail.voiceSoundEnabled ? 'Disable voice jail sound' : 'Enable voice jail sound', value: 'toggle', description: 'Turn the uploaded sound on or off' }] : []),
         ...(configured ? [{ label: 'Remove uploaded sound', value: 'clear', description: 'Delete the saved sound file and disable playback' }] : []),
       );
-    return { content: '', embeds: [embed], components: [categoryNav, nav, new ActionRowBuilder().addComponents(soundActions)], flags: MessageFlags.Ephemeral };
+    return { content: '', embeds: [embed], components: [categoryNav, nav, soundNav, new ActionRowBuilder().addComponents(soundActions)], flags: MessageFlags.Ephemeral };
   }
 
   let controls = [];
@@ -402,7 +408,7 @@ function panelPayload(config, category = 'jail', page = 'settings', gamesGameId 
       );
     controls = [new ActionRowBuilder().addComponents(messageMenu)];
   }
-  return { content: '', embeds: [embed], components: [categoryNav, nav, ...controls], flags: MessageFlags.Ephemeral };
+  return { content: '', embeds: [embed], components: [categoryNav, nav, soundNav, ...controls], flags: MessageFlags.Ephemeral };
 }
 
 async function logConfigSave(interaction, jail, title, details) {
