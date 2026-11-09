@@ -64,7 +64,6 @@ export default {
     }
 
     const jail = guildConfig?.jail ?? {};
-    const isServerOwner = target.id === interaction.guild.ownerId;
     const activeTargetCases = (Array.isArray(jail.activeCases) ? jail.activeCases : [])
       .filter(entry => entry?.userId === target.id);
     const ownerFallbackCases = activeTargetCases
