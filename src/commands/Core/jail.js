@@ -551,12 +551,28 @@ export default {
       user: `<@${target.id}>`, server: interaction.guild.name, moderator: `<@${interaction.user.id}>`,
       role: assignedRoles.length === 1 ? `<@&${assignedRoles[0].id}>` : assignedRoles.length > 1 ? `${assignedRoles.length} jail roles` : ownerFallbackRoles.length ? 'server owner jail record (Discord role assignment unavailable)' : 'jail record', reason: jailReason, duration: durationLabel,
     });
-    // Post the jail announcement in the channel where /jail was invoked,
-    // rather than the jail role's private destination channel.
-    const announcementChannelIds = [...new Set([interaction.channelId, jail.actionLogChannelId].filter(Boolean))];
-    for (const channelId of announcementChannelIds) {
-      const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
-      if (channel?.isTextBased?.() && channel.send) await channel.send({ content: jailAnnouncement, preserveCase: true, allowedMentions: { parse: ['users', 'roles'] } }).catch(() => null);
+    // Send the announcement where /jail was invoked, then forward that exact
+    // message to the configured jail announcement channel.
+    const originalAnnouncementChannel = await interaction.guild.channels.fetch(interaction.channelId).catch(() => null);
+    let originalAnnouncementMessage = null;
+    if (originalAnnouncementChannel?.isTextBased?.() && originalAnnouncementChannel.send) {
+      originalAnnouncementMessage = await originalAnnouncementChannel.send({
+        content: jailAnnouncement,
+        preserveCase: true,
+        allowedMentions: { parse: ['users', 'roles'] },
+      }).catch(error => {
+        console.warn('[jail] Could not post the original jail announcement:', error?.message ?? String(error));
+        return null;
+      });
+    }
+
+    if (jail.actionLogChannelId && jail.actionLogChannelId !== interaction.channelId && originalAnnouncementMessage) {
+      const announcementChannel = await interaction.guild.channels.fetch(jail.actionLogChannelId).catch(() => null);
+      if (announcementChannel?.isTextBased?.() && announcementChannel.send) {
+        await originalAnnouncementMessage.forward(announcementChannel).catch(error => {
+          console.warn('[jail] Could not forward the jail announcement to the configured announcement channel:', error?.message ?? String(error));
+        });
+      }
     }
     const voiceSoundNotice = [];
     if (voiceSoundResult.status === 'played') {
