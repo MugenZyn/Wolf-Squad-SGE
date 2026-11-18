@@ -26,7 +26,7 @@ export default {
       });
     }
 
-    await interaction.deferReply();
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply();
 
     const lawyerRoleId = guildConfig?.jail?.lawyerRoleId;
     if (!lawyerRoleId) {
