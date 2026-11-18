@@ -619,7 +619,7 @@ export default {
       if (Number(gameAttachment.size) > 8 * 1024 * 1024) {
         return interaction.reply({ content: 'THE GAME CODE FILE MUST BE 8 MB OR SMALLER.', flags: MessageFlags.Ephemeral });
       }
-      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+      if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const sourceUrl = new URL(gameAttachment.url);
         if (sourceUrl.protocol !== 'https:' || !['cdn.discordapp.com', 'media.discordapp.net'].includes(sourceUrl.hostname)) {
@@ -670,7 +670,7 @@ export default {
       return interaction.reply({ content: 'THE JAIL SOUND FILE MUST BE 15 MB OR SMALLER.', flags: MessageFlags.Ephemeral });
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     let storedMessage = null;
     try {
       const sourceUrl = new URL(soundAttachment.url);
