@@ -107,6 +107,34 @@ export default {
         return;
       }
 
+      // Acknowledge slash commands before any database reads or Discord API work.
+      // Nearly every command returns an ephemeral response; /lawyer intentionally
+      // uses a public success response, so preserve that behavior.
+      if (!interaction.deferred && !interaction.replied) {
+        await interaction.deferReply(
+          interaction.commandName === 'lawyer'
+            ? {}
+            : { flags: MessageFlags.Ephemeral }
+        );
+
+        // Keep existing command handlers compatible: their first reply() now
+        // edits the response we just deferred instead of attempting a second ACK.
+        const originalReply = interaction.reply.bind(interaction);
+        let initialReplyUsed = false;
+        interaction.reply = options => {
+          if (!initialReplyUsed && interaction.deferred && !interaction.replied) {
+            initialReplyUsed = true;
+            if (options && typeof options === 'object' && !Array.isArray(options)) {
+              const editableOptions = { ...options };
+              delete editableOptions.flags; // Visibility was fixed by deferReply().
+              return interaction.editReply(editableOptions);
+            }
+            return interaction.editReply(options);
+          }
+          return originalReply(options);
+        };
+      }
+
       const guildConfig = interaction.guild
         ? await getGuildConfig(client, interaction.guild.id)
         : null;
@@ -132,6 +160,10 @@ export default {
         }
       }
     } catch (error) {
+      if (error?.code === 10062) {
+        logger.warn(`Discord interaction for /${interaction.commandName} expired before the response could be completed.`);
+        return;
+      }
       logger.error(`Command /${interaction.commandName} failed:`, error);
       if (interaction.commandName !== 'config' && interaction.guild) {
         try {
