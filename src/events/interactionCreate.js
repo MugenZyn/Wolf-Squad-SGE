@@ -135,9 +135,15 @@ export default {
         };
       }
 
+      const configFetchStartedAt = Date.now();
       const guildConfig = interaction.guild
         ? await getGuildConfig(client, interaction.guild.id)
         : null;
+      const configFetchDurationMs = Date.now() - configFetchStartedAt;
+      if (configFetchDurationMs >= 1200) {
+        logger.warn(`Slow guild config read for /${interaction.commandName}: ${configFetchDurationMs}ms`);
+      }
+
       await command.execute(interaction, guildConfig, client);
 
       // /config has its own save-only audit logging; browsing the panel is not a logged command.
