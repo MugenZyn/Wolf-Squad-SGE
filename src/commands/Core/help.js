@@ -96,7 +96,7 @@ export default {
     .setDescription('Browse every available bot command.'),
 
   async execute(interaction, guildConfig, client) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    if (!interaction.deferred && !interaction.replied) await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     return interaction.editReply(buildHelp(client, currentBotName(interaction, client)));
   },
 
