@@ -1,5 +1,7 @@
 import 'dotenv/config';
 import { ensureBundledNodeRuntime } from './utils/bundledNodeRuntime.js';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 
 const root = process.cwd();
@@ -46,28 +48,90 @@ try {
   console.error('[git-sync] Could not determine deployed Git commit:', error.message);
 }
 
-console.log('[dependencies] Checking and installing production dependencies...');
-const install = await new Promise(resolve => {
-  const child = spawn('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], {
-    cwd: root,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let installOutput = '';
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', chunk => { installOutput += chunk; });
-  child.stderr.on('data', chunk => { installOutput += chunk; });
-  child.on('error', error => {
-    console.error('[dependencies] npm install could not start:', error.message);
-    resolve({ code: null, output: installOutput });
-  });
-  child.on('close', code => resolve({ code, output: installOutput }));
-});
-if (install.code === 0) {
-  console.log('[dependencies] Production dependencies are ready.');
+async function getMissingProductionDependencies() {
+  const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+  const lockfile = JSON.parse(await readFile(join(root, 'package-lock.json'), 'utf8'));
+  const missing = [];
+
+  for (const name of Object.keys(packageJson.dependencies ?? {})) {
+    const lockEntry = lockfile.packages?.['node_modules/' + name];
+    const expectedVersion = lockEntry?.version;
+    const packagePath = join(root, 'node_modules', ...name.split('/'), 'package.json');
+    if (!expectedVersion) {
+      missing.push(name + ' (missing lockfile entry)');
+      continue;
+    }
+
+    try {
+      const installed = JSON.parse(await readFile(packagePath, 'utf8'));
+      if (installed.version !== expectedVersion) {
+        missing.push(name + ' (installed ' + (installed.version || 'unknown') + ', expected ' + expectedVersion + ')');
+      }
+    } catch {
+      missing.push(name + ' (not installed)');
+    }
+  }
+
+  return missing;
+}
+
+console.log('[dependencies] Checking installed production dependencies...');
+let missingDependencies = [];
+try {
+  missingDependencies = await getMissingProductionDependencies();
+} catch (error) {
+  console.warn('[dependencies] Could not verify installed packages:', error?.message ?? String(error));
+  missingDependencies = ['dependency verification failed'];
+}
+
+if (missingDependencies.length === 0) {
+  console.log('[dependencies] Existing production dependencies match package-lock.json; skipping npm install.');
 } else {
-  console.error(`[dependencies] npm install failed (exit ${install.code}).`);
-  if (install.output.trim()) console.error(install.output.trim());
+  console.log('[dependencies] Installing or repairing ' + missingDependencies.length + ' production dependency package(s):');
+  for (const dependency of missingDependencies.slice(0, 20)) {
+    console.log('[dependencies] - ' + dependency);
+  }
+  if (missingDependencies.length > 20) {
+    console.log('[dependencies] - and ' + (missingDependencies.length - 20) + ' more');
+  }
+
+  const install = await new Promise(resolve => {
+    let settled = false;
+    let timedOut = false;
+    const child = spawn('npm', [
+      'install', '--omit=dev', '--no-audit', '--no-fund', '--foreground-scripts',
+    ], {
+      cwd: root,
+      stdio: 'inherit',
+    });
+
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      console.error('[dependencies] npm install exceeded 180 seconds; stopping it and continuing with the currently installed packages.');
+      child.kill('SIGTERM');
+      const forceKill = setTimeout(() => child.kill('SIGKILL'), 10000);
+      forceKill.unref?.();
+    }, 180000);
+    timeout.unref?.();
+
+    child.once('error', error => finish({ code: null, error }));
+    child.once('close', code => finish({ code, timedOut }));
+  });
+
+  if (install.error) {
+    console.error('[dependencies] npm install could not start:', install.error.message);
+  } else if (install.code === 0) {
+    console.log('[dependencies] Production dependencies are ready.');
+  } else if (!install.timedOut) {
+    console.error('[dependencies] npm install failed (exit ' + install.code + '). Starting with currently installed packages.');
+  }
 }
 
 console.log('[git-sync] Starting bot application...');
