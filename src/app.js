@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { ensureBundledNodeRuntime } from './utils/bundledNodeRuntime.js';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 
@@ -72,7 +72,20 @@ async function getMissingProductionDependencies() {
     }
   }
 
-  return missing;
+  // ffmpeg-static has a postinstall download; checking only package.json
+  // would miss an install where the binary download never completed.
+  try {
+    const { default: ffmpegPath } = await import('ffmpeg-static');
+    if (typeof ffmpegPath !== 'string' || !ffmpegPath) {
+      missing.push('ffmpeg-static (binary path unavailable)');
+    } else {
+      await access(ffmpegPath);
+    }
+  } catch {
+    missing.push('ffmpeg-static (binary missing or inaccessible)');
+  }
+
+  return [...new Set(missing)];
 }
 
 console.log('[dependencies] Checking installed production dependencies...');
